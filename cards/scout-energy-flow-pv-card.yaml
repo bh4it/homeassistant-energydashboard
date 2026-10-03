@@ -1,0 +1,199 @@
+type: custom:scout-energy-flow-pv-card
+title: Energie
+layout:
+  mode: auto
+  wide_min: 1100
+  mid_min: 680
+  fit_height: auto
+  bottom_gap: 10
+header:
+  real_import: sensor.stromverbrauch_taglich
+  real_export: sensor.einspeisung_taglich
+  temp: sensor.bwm_eingang_temperature
+  humidity: sensor.aussenthermometer_sb_luftfeuchtigkeit
+  weather: weather.home
+  uv: sensor.uv_index_munster_hiltrup
+solar:
+- entity: sensor.solaredge_i1_ac_power
+  name: Dach
+  icon: mdi:solar-power-variant
+  image: /api/image/serve/09430b681d30018d433cd6958e7efcd2/original
+  image_light: /api/image/serve/f8e694cd75bc910a72b241850a5ce9f5/original
+  energy_today: sensor.solaredge_i1_pv_dach_ertrag_heute
+  energy_today_unit: kWh
+- entity: sensor.shellyem_485519d792b8_channel_1_power
+  name: Balkon
+  icon: mdi:balcony
+  image: /api/image/serve/93f26cae025fe495313c6839b2d895ce/original
+  image_light: /api/image/serve/f509e1e26091dac536d180d6dfb2e9f8/original
+  energy_today: sensor.balkon_pv_balkon_ertrag_heute
+  energy_today_unit: kWh
+- entity: sensor.shellyem_ec64c9c06bc2_channel_1_power
+  name: Garage
+  icon: mdi:garage-variant
+  image: /api/image/serve/b4b1728665311156daf778a982fbe248/original
+  image_light: /api/image/serve/4d69be7dceebe12f467c251902059c6f/original
+  energy_today: sensor.garage_pv_garage_ertrag_heute
+  energy_today_unit: kWh
+- entity: sensor.shelly_pv_garten_channel_1_power
+  name: Garten
+  icon: mdi:flower
+  image: /api/image/serve/84ce537f93feb64aaeee45343ba7de2a/original
+  image_light: /api/image/serve/fae8b87890dea4e8c2afc6b687abeb2f/original
+  energy_today: sensor.pv_garten_ertrag_heute
+  energy_today_unit: kWh
+batteries:
+- name: Sonnen
+  soc: sensor.sonnenbatterie_154086_state_charge_user
+  power: sensor.sonnenbatterie_154086_state_battery_inout
+  icon: mdi:battery-high
+  image: /api/image/serve/56c3e552de7a67ed8984e7bb2d271bf9/original
+  image_light: /api/image/serve/a8b9d3f3035a3d1e1bf82030c3155330/original
+- name: Anker
+  soc: sensor.anker_solix_solarbank_max_ac_041_soc
+  power: sensor.anker_batterie_leistung
+  icon: mdi:battery-charging
+  image: /api/image/serve/b42056930cb42ca11bcb396f4b487623/original
+  image_light: /api/image/serve/5f3ad5a90d6d6cd8e40f1ef00208d098/original
+grid:
+  entity: sensor.shelly_modbus_netzleistung
+  invert: false
+  import_today: sensor.shelly_pro_3em_stromverbrauch_taglich_ext_messer
+  export_today: sensor.shelly_pro_3em_stromeinspeisung_taglich_ext_messer
+  name: Netz
+  icon: mdi:transmission-tower
+  image: /api/image/serve/d45fe1a369d932e9545f87f2d8a5bd3a/original
+  image_light: /api/image/serve/d3d64d9b27188640eaeb308a3284d8b2/original
+home:
+  entity: sensor.hausverbrauch_gesamt
+  icon: mdi:home-lightning-bolt
+  image: /api/image/serve/33109c62a2570881b1ddfce05389f6fe/original
+  image_light: /api/image/serve/4831adebb1b0b341b1c480c4929963af/original
+climate:
+- name: Bella & Kurt
+  entity: sensor.klimaanlage_power
+  icon: mdi:air-conditioner
+  metrics:
+  - label: Heute
+    entity: sensor.klima_verbrauch_daily
+    unit: kWh
+- name: Daikin Stylish
+  entity: sensor.shelly_em_mini_gen4_leistung
+  state_entity: climate.daikinap96107_room_temperature
+  icon: mdi:hvac
+  metrics:
+  - label: Kühlen
+    entity: sensor.daikinap96107_climatecontrol_taglicher_stromverbrauch_kuhlung
+    unit: kWh
+  - label: Heizen
+    entity: sensor.daikinap96107_climatecontrol_taglicher_stromverbrauch_heizung
+    unit: kWh
+consumers:
+- entity: sensor.anker_solix_v1_smart_ev_charger_541_gesamte_ladewirkleistung
+  name: Wallbox
+  icon: mdi:ev-station
+  color: '#a78bfa'
+  unit: W
+  hidden: false
+  image: /api/image/serve/03454eb67276d946310a193c61b80ec5/original
+  secondary:
+    entity: sensor.polestar_9442_battery_charge_level_2
+    unit: '%'
+- entity: sensor.my_pv_ac_elwa_2_leistung
+  name: Heizstab
+  icon: mdi:heating-coil
+  color: '#ff7043'
+  unit: W
+  hidden: false
+  secondary:
+    entity: sensor.boiler_wwcurtemp
+    label: Wasser
+    unit: °C
+- entity: sensor.steckdose_spulmaschine_power
+  name: Spülm.
+  icon: mdi:dishwasher
+  color: '#9ccc65'
+  unit: W
+  hidden: false
+  image: /api/image/serve/6dde8897f2c40f59f63a0a27fa684f22/original
+- entity: sensor.steckdose_trockner_power
+  name: Trockner
+  icon: mdi:tumble-dryer
+  color: '#4db6ac'
+  unit: W
+  hidden: false
+  image: /api/image/serve/88f29ca686aa5e92a6bdac3d94b073cc/original
+- entity: sensor.steckdose_waschmaschine_power
+  name: Waschm.
+  icon: mdi:washing-machine
+  color: '#4dd0e1'
+  unit: W
+  hidden: false
+  image: /api/image/serve/711a359d63e12299cff64cc3602ea33c/original
+- entity: sensor.steckdose_wasserpumpe_power
+  name: Pumpe
+  icon: mdi:water-pump
+  color: '#4fc3f7'
+  unit: W
+  hidden: false
+  image: /api/image/serve/8e2f8dad12c265bdab06b490fb09060d/original
+- entity: sensor.anker_solix_smart_plug_gen_2_065_aktuelle_wirkleistung
+  name: Fritteuse
+  icon: mdi:toaster-oven
+  color: '#ffb74d'
+  unit: W
+  hidden: false
+  image: /api/image/serve/f545c661b67b1082487583349095bbf7/original
+- entity: sensor.gasverbrauch_taglich
+  name: Gas heute
+  icon: mdi:fire
+  color: '#ffa726'
+  unit: kWh
+  hidden: false
+- entity: sensor.steckdose_kuhltruhe_kuhlschrank_power
+  name: Kühltruhe
+  icon: mdi:fridge-outline
+  color: '#80deea'
+  unit: W
+  hidden: false
+  image: /api/image/serve/5660f3dab9855f180f5944f64c80d833/original
+- entity: sensor.steckdose_3d_drucker_power
+  name: 3D-Drucker
+  icon: mdi:printer-3d
+  color: '#7fd4ff'
+  unit: W
+  image: /api/image/serve/c8dee281c9b890f8dcbaa6c60f0b2a0f/original
+- entity: sensor.steckdose_computer_power
+  name: Mac Studio
+  icon: mdi:power-plug
+  color: '#7fd4ff'
+  unit: W
+  image: /api/image/serve/fdc377971b3be570baac4b6e9f6cb42d/original
+- entity: sensor.steckdose_quooker_warm_power
+  name: Quooker Warm
+  icon: mdi:power-plug
+  color: '#7fd4ff'
+  unit: W
+  image: /api/image/serve/6cb976c44b57faf1e2a9d924c8364ec4/original
+- entity: sensor.steckdose_quooker_kalt_power
+  name: Quooker Kalt
+  icon: mdi:power-plug
+  color: '#7fd4ff'
+  unit: W
+  image: /api/image/serve/df77098cbe6993a9eeacb956e0bc6163/original
+grid_options:
+  columns: full
+  rows: auto
+theme:
+  preset: blau
+  mode: dunkel
+  center: '#1a2655'
+  edge: '#05070f'
+  spread: 78
+  tile: 5.5
+  wires: puls
+pv:
+  energy_today: sensor.pv_produktion_heute
+  forecast_today: sensor.pv_prognose_gesamt_heute
+  forecast_remaining: sensor.pv_prognose_gesamt_resttag
+  forecast_tomorrow: sensor.pv_prognose_gesamt_morgen

@@ -1,0 +1,20 @@
+type: custom:scout-battery-status-card
+entity: sensor.sonnenbatterie_154086_state_charge_user
+power: sensor.sonnenbatterie_154086_state_battery_inout
+name: Sonnenbatterie
+icon: mdi:battery-high
+accent: '#00a8ff'
+accent2: '#33e6c7'
+details:
+- entity: sensor.sonnenbatterie_154086_battery_system_health
+  name: Akkuzustand
+  icon: mdi:battery-heart-variant
+- entity: sensor.sonnenbatterie_154086_state_total_capacity_usable
+  name: Kapazität
+  icon: mdi:battery-charging
+- entity: sensor.batterie_aufladung_today
+  name: Geladen heute
+  icon: mdi:battery-plus
+- entity: sensor.batterie_entladung_today
+  name: Entladen heute
+  icon: mdi:battery-minus

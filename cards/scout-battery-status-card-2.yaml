@@ -1,0 +1,20 @@
+type: custom:scout-battery-status-card
+entity: sensor.anker_solix_solarbank_max_ac_041_soc
+power: sensor.anker_batterie_leistung
+name: Anker Solarbank Max AC
+icon: mdi:battery-charging-high
+accent: '#695cff'
+accent2: '#c15cff'
+details:
+- entity: sensor.anker_solix_solarbank_max_ac_041_geratestatus
+  name: Status
+  icon: mdi:battery-sync
+- entity: sensor.anker_solix_solarbank_max_ac_041_akkukapazitat
+  name: Kapazität
+  icon: mdi:battery
+- entity: number.anker_solix_solarbank_max_ac_041_entladegrenze
+  name: Minimum
+  icon: mdi:battery-arrow-down
+- entity: number.anker_solix_solarbank_max_ac_041_ladeobergrenze
+  name: Maximum
+  icon: mdi:battery-arrow-up
