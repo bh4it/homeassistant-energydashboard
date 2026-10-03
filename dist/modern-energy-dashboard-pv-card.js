@@ -1,7 +1,5 @@
-// Approved step 1: house/grid/storage artwork and larger grid tile. Base version unchanged.
-// Isolated PV design trial; original shared card unchanged.
 /**
- * Scout Energy Flow Card
+ * Modern Energy Dashboard – PV Design Card
  * Dark Glassmorphism + Neon energy flow for Home Assistant.
  * Vanilla Web Components, no build step.
  * v0.9.5 — the PV total is centred in the run instead of hugging the panel
@@ -1271,7 +1269,7 @@
   // — which is exactly what made the icons scatter across the card in Safari.
   // A native path is laid out by the same transform as everything else and is
   // therefore identical in Safari, Edge/Chromium and Brave.
-  const ICONS = (window.__scoutIconCache = window.__scoutIconCache || {});
+  const ICONS = (window.__modernEnergyDashboardIconCache = window.__modernEnergyDashboardIconCache || {});
 
   /**
    * Resolve an "mdi:name" to its raw path data by asking Home Assistant's own
@@ -1594,7 +1592,7 @@ function step1Battery(x,y,w,h,b,compact) {
   function batterySvg(x,y,w,h,b,compact) { return step1Battery(x,y,w,h,b,compact); }
 
   // ------------------------------------------------------------------- card
-  class ScoutEnergyFlowCard extends HTMLElement {
+  class ModernEnergyDashboardPvCard extends HTMLElement {
     setConfig(config) {
       this._raw = config || {};
       this._config = normalize(this._raw);
@@ -1607,7 +1605,7 @@ function step1Battery(x,y,w,h,b,compact) {
       if (this._built === false && this.shadowRoot.firstChild) { this.shadowRoot.innerHTML = ""; }
     }
 
-    static getConfigElement() { return document.createElement("scout-energy-flow-pv-card-editor"); }
+    static getConfigElement() { return document.createElement("modern-energy-dashboard-pv-card-editor"); }
 
     static getStubConfig(hass) {
       const find = (re) => Object.keys(hass?.states || {}).find((id) => re.test(id)) || "";
@@ -2548,7 +2546,7 @@ function step1Battery(x,y,w,h,b,compact) {
     .pic mwc-button, .pic ha-button { --mdc-typography-button-font-size:13px; }
     .pic input[type=file] { display:none; }`;
 
-  class ScoutEnergyFlowCardEditor extends HTMLElement {
+  class ModernEnergyDashboardPvCardEditor extends HTMLElement {
     constructor() {
       super();
       this.attachShadow({ mode: "open" });
@@ -2607,7 +2605,7 @@ function step1Battery(x,y,w,h,b,compact) {
         if (!this._page) this._renderOverview(root);
         else this._renderPage(root);
       } catch (err) {
-        console.error("[scout-energy-flow-pv-card] editor render failed", err);
+        console.error("[modern-energy-dashboard-pv-card] editor render failed", err);
         root.innerHTML = `<div class="empty">Editor konnte nicht geladen werden: ${esc(err.message || err)}</div>`;
       }
       this._propagate();
@@ -2963,12 +2961,14 @@ function step1Battery(x,y,w,h,b,compact) {
   }
 
 
-  if (!customElements.get("scout-energy-flow-pv-card")) customElements.define("scout-energy-flow-pv-card", ScoutEnergyFlowCard);
-  if (!customElements.get("scout-energy-flow-pv-card-editor")) customElements.define("scout-energy-flow-pv-card-editor", ScoutEnergyFlowCardEditor);
+  if (!customElements.get("modern-energy-dashboard-pv-card")) customElements.define("modern-energy-dashboard-pv-card", ModernEnergyDashboardPvCard);
+  if (!customElements.get("modern-energy-dashboard-pv-card-editor")) customElements.define("modern-energy-dashboard-pv-card-editor", ModernEnergyDashboardPvCardEditor);
   window.customCards = window.customCards || [];
-  if (!window.customCards.some(c => c.type === "scout-energy-flow-pv-card")) window.customCards.push({
-    type: "scout-energy-flow-pv-card", name: "Scout Energy Flow - PV Design",
-    description: "Separater PV-Designversuch auf Basis 0.9.5.", preview: false
+  if (!window.customCards.some(c => c.type === "modern-energy-dashboard-pv-card")) window.customCards.push({
+    type: "modern-energy-dashboard-pv-card", name: "Modern Energy Dashboard – PV Design",
+    description: "Energiefluss im PV-Design mit PV-Prognose (Heute / Rest / Morgen).", preview: false, documentationURL: "https://github.com/bh4it/modern-energy-dashboard"
   });
-  console.info("Scout PV Design - isolierter Versuch auf Basis " + CARD_VERSION);
+  console.info(`%c MODERN-ENERGY-DASHBOARD PV %c v${CARD_VERSION} `,
+    "background:#0a1122;color:#7fd4ff;padding:2px 6px;border-radius:4px 0 0 4px",
+    "background:#37c8ff;color:#05070f;padding:2px 6px;border-radius:0 4px 4px 0");
 })();

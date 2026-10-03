@@ -1,5 +1,5 @@
 /**
- * Scout Energy Flow Card
+ * Modern Energy Dashboard – Energy Flow Card
  * Dark Glassmorphism + Neon energy flow for Home Assistant.
  * Vanilla Web Components, no build step.
  * v0.9.5 — the PV total is centred in the run instead of hugging the panel
@@ -1199,7 +1199,7 @@
   // — which is exactly what made the icons scatter across the card in Safari.
   // A native path is laid out by the same transform as everything else and is
   // therefore identical in Safari, Edge/Chromium and Brave.
-  const ICONS = (window.__scoutIconCache = window.__scoutIconCache || {});
+  const ICONS = (window.__modernEnergyDashboardIconCache = window.__modernEnergyDashboardIconCache || {});
 
   /**
    * Resolve an "mdi:name" to its raw path data by asking Home Assistant's own
@@ -1551,7 +1551,7 @@
   }
 
   // ------------------------------------------------------------------- card
-  class ScoutEnergyFlowCard extends HTMLElement {
+  class ModernEnergyDashboardFlowCard extends HTMLElement {
     setConfig(config) {
       this._raw = config || {};
       this._config = normalize(this._raw);
@@ -1564,7 +1564,7 @@
       if (this._built === false && this.shadowRoot.firstChild) { this.shadowRoot.innerHTML = ""; }
     }
 
-    static getConfigElement() { return document.createElement("scout-energy-flow-card-editor"); }
+    static getConfigElement() { return document.createElement("modern-energy-dashboard-flow-card-editor"); }
 
     static getStubConfig(hass) {
       const find = (re) => Object.keys(hass?.states || {}).find((id) => re.test(id)) || "";
@@ -2419,7 +2419,7 @@
     .pic mwc-button, .pic ha-button { --mdc-typography-button-font-size:13px; }
     .pic input[type=file] { display:none; }`;
 
-  class ScoutEnergyFlowCardEditor extends HTMLElement {
+  class ModernEnergyDashboardFlowCardEditor extends HTMLElement {
     constructor() {
       super();
       this.attachShadow({ mode: "open" });
@@ -2478,7 +2478,7 @@
         if (!this._page) this._renderOverview(root);
         else this._renderPage(root);
       } catch (err) {
-        console.error("[scout-energy-flow-card] editor render failed", err);
+        console.error("[modern-energy-dashboard-flow-card] editor render failed", err);
         root.innerHTML = `<div class="empty">Editor konnte nicht geladen werden: ${esc(err.message || err)}</div>`;
       }
       this._propagate();
@@ -2814,7 +2814,7 @@
   }
 
   // ------------------------------------------------------- battery status card
-  class ScoutBatteryStatusCard extends HTMLElement {
+  class ModernEnergyDashboardBatteryCard extends HTMLElement {
     setConfig(config) {
       if (!config.entity) throw new Error("entity is required");
       this._config = config;
@@ -2889,24 +2889,24 @@
   }
 
   // ------------------------------------------------------------- registration
-  if (!customElements.get("scout-energy-flow-card")) customElements.define("scout-energy-flow-card", ScoutEnergyFlowCard);
-  if (!customElements.get("scout-energy-flow-card-editor")) customElements.define("scout-energy-flow-card-editor", ScoutEnergyFlowCardEditor);
-  if (!customElements.get("scout-battery-status-card")) customElements.define("scout-battery-status-card", ScoutBatteryStatusCard);
+  if (!customElements.get("modern-energy-dashboard-flow-card")) customElements.define("modern-energy-dashboard-flow-card", ModernEnergyDashboardFlowCard);
+  if (!customElements.get("modern-energy-dashboard-flow-card-editor")) customElements.define("modern-energy-dashboard-flow-card-editor", ModernEnergyDashboardFlowCardEditor);
+  if (!customElements.get("modern-energy-dashboard-battery-card")) customElements.define("modern-energy-dashboard-battery-card", ModernEnergyDashboardBatteryCard);
 
   window.customCards = window.customCards || [];
   window.customCards.push({
-    type: "scout-energy-flow-card",
-    name: "Scout Energy Flow Card",
+    type: "modern-energy-dashboard-flow-card",
+    name: "Modern Energy Dashboard – Energy Flow",
     description: "Responsiver Energiefluss mit PV, Speicher, Netz, Klima und frei konfigurierbaren Verbrauchern.",
     preview: false,
-    documentationURL: "https://github.com/",
+    documentationURL: "https://github.com/bh4it/modern-energy-dashboard",
   });
   window.customCards.push({
-    type: "scout-battery-status-card",
-    name: "Scout Battery Status Card",
+    type: "modern-energy-dashboard-battery-card",
+    name: "Modern Energy Dashboard – Battery Status",
     description: "Dark, responsive battery card with SOC, power and metrics.",
   });
-  console.info(`%c SCOUT-ENERGY-FLOW-CARD %c v${CARD_VERSION} `,
+  console.info(`%c MODERN-ENERGY-DASHBOARD %c v${CARD_VERSION} `,
     "background:#0a1122;color:#7fd4ff;padding:2px 6px;border-radius:4px 0 0 4px",
     "background:#37c8ff;color:#05070f;padding:2px 6px;border-radius:0 4px 4px 0");
 })();

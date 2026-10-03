@@ -1,4 +1,4 @@
-type: custom:scout-energy-flow-pv-card
+type: custom:modern-energy-dashboard-pv-card
 title: Energie
 layout:
   mode: auto
@@ -185,12 +185,12 @@ grid_options:
   columns: full
   rows: auto
 theme:
+  preset: blau
   mode: dunkel
   center: '#1a2655'
   edge: '#05070f'
   spread: 78
   tile: 5.5
-  preset: blau
   wires: puls
 pv:
   energy_today: sensor.pv_produktion_heute
