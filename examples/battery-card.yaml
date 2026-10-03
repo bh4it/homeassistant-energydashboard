@@ -1,4 +1,4 @@
-type: custom:modern-energy-dashboard-battery-card
+type: custom:modern-energy-battery-card
 entity: sensor.sonnenbatterie_154086_state_charge_user
 power: sensor.sonnenbatterie_154086_state_battery_inout
 name: Sonnenbatterie

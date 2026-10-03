@@ -1,5 +1,5 @@
 /*!
- * modern-energy-dashboard-keep-awake-card
+ * modern-energy-keep-awake-card
  *
  * Keeps Fire OS devices (Echo Show, Fire tablets) from dropping into the
  * ambient/photo-frame screen while a Home Assistant dashboard is open.
@@ -57,10 +57,10 @@
   // ?keepawake=force runs the engine on any device, for testing.
   var FORCE = /[?&]keepawake=force/.test(location.search);
 
-  var engine = window.__modernEnergyDashboardKeepAwake;
+  var engine = window.__modernEnergyCardKeepAwake;
 
   if (!engine) {
-    engine = window.__modernEnergyDashboardKeepAwake = {
+    engine = window.__modernEnergyCardKeepAwake = {
       version: VERSION,
       audio: null,
       video: null,
@@ -133,7 +133,7 @@
       // slightly larger box is safer against Chromium's minimum-visible-area
       // heuristics.
       var host = document.createElement("div");
-      host.id = "modern-energy-dashboard-keep-awake-host";
+      host.id = "modern-energy-keep-awake-host";
       host.style.cssText = [
         "position:fixed", "right:0", "bottom:0",
         "width:" + KA_SIZE + "px", "height:" + KA_SIZE + "px",
@@ -284,7 +284,7 @@
   }
 
   // -------------------------------------------------------------------- card
-  class ModernEnergyDashboardKeepAwakeCard extends HTMLElement {
+  class ModernEnergyKeepAwakeCard extends HTMLElement {
     setConfig(config) {
       this._config = Object.assign({ show_status: "problem", diagnose: false }, config || {});
       if (!this.shadowRoot) this.attachShadow({ mode: "open" });
@@ -330,10 +330,10 @@
       // A stable per-browser id keeps two devices of the same kind apart.
       let id = "";
       try {
-        id = localStorage.getItem("modernEnergyDashboardKeepAwakeId") || "";
+        id = localStorage.getItem("modernEnergyCardKeepAwakeId") || "";
         if (!id) {
           id = Math.random().toString(36).slice(2, 6);
-          localStorage.setItem("modernEnergyDashboardKeepAwakeId", id);
+          localStorage.setItem("modernEnergyCardKeepAwakeId", id);
         }
       } catch (e) { id = "x"; }
       return kind + "_" + id;
@@ -348,7 +348,7 @@
       const push = () => {
         try {
           const r = engine.report();
-          this._hass.callApi("POST", "states/sensor.modern_energy_dashboard_keep_awake_" + slug, {
+          this._hass.callApi("POST", "states/sensor.modern_energy_card_keep_awake_" + slug, {
             state: r.state,
             attributes: Object.assign({
               friendly_name: "Keep Awake " + slug,
@@ -418,11 +418,11 @@
 
     static getStubConfig() { return { show_status: "problem" }; }
     static getConfigElement() {
-      return document.createElement("modern-energy-dashboard-keep-awake-card-editor");
+      return document.createElement("modern-energy-keep-awake-card-editor");
     }
   }
 
-  class ModernEnergyDashboardKeepAwakeCardEditor extends HTMLElement {
+  class ModernEnergyKeepAwakeCardEditor extends HTMLElement {
     setConfig(config) { this._config = config || {}; this._render(); }
     set hass(h) { this._hass = h; if (this._form) this._form.hass = h; }
 
@@ -436,7 +436,7 @@
             { value: "always", label: "Immer anzeigen" },
             { value: "never", label: "Nie anzeigen" },
           ] } } },
-        { name: "diagnose", label: "Diagnose an sensor.modern_energy_dashboard_keep_awake senden",
+        { name: "diagnose", label: "Diagnose an sensor.modern_energy_card_keep_awake senden",
           selector: { boolean: {} } },
       ];
       form.computeLabel = (s) => s.label || s.name;
@@ -453,17 +453,17 @@
     }
   }
 
-  if (!customElements.get("modern-energy-dashboard-keep-awake-card")) {
-    customElements.define("modern-energy-dashboard-keep-awake-card", ModernEnergyDashboardKeepAwakeCard);
-    customElements.define("modern-energy-dashboard-keep-awake-card-editor", ModernEnergyDashboardKeepAwakeCardEditor);
+  if (!customElements.get("modern-energy-keep-awake-card")) {
+    customElements.define("modern-energy-keep-awake-card", ModernEnergyKeepAwakeCard);
+    customElements.define("modern-energy-keep-awake-card-editor", ModernEnergyKeepAwakeCardEditor);
     window.customCards = window.customCards || [];
     window.customCards.push({
-      type: "modern-energy-dashboard-keep-awake-card",
-      name: "Modern Energy Dashboard – Bildschirm wachhalten",
+      type: "modern-energy-keep-awake-card",
+      name: "Modern Energy Card – Bildschirm wachhalten",
       description: "Hält Echo Show und Fire-Tablets wach, ohne iframe und ohne Netzwerkzugriff.",
       preview: false,
     });
-    console.info("%c MODERN-ENERGY-DASHBOARD KEEP-AWAKE %c " + VERSION + " ",
+    console.info("%c MODERN-ENERGY-CARD KEEP-AWAKE %c " + VERSION + " ",
       "background:#0a7;color:#fff;border-radius:3px 0 0 3px",
       "background:#134;color:#fff;border-radius:0 3px 3px 0");
   }

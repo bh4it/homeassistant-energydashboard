@@ -1,4 +1,4 @@
-type: custom:modern-energy-dashboard-battery-card
+type: custom:modern-energy-battery-card
 entity: sensor.anker_solix_solarbank_max_ac_041_soc
 power: sensor.anker_batterie_leistung
 name: Anker Solarbank Max AC

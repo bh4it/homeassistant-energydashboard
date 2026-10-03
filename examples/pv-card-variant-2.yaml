@@ -1,4 +1,4 @@
-type: custom:modern-energy-dashboard-pv-card
+type: custom:modern-energy-pv-card
 title: Energie
 layout:
   mode: auto

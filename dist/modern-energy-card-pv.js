@@ -1,5 +1,5 @@
 /**
- * Modern Energy Dashboard – Energy Flow Card
+ * Modern Energy Card – PV Design Card
  * Dark Glassmorphism + Neon energy flow for Home Assistant.
  * Vanilla Web Components, no build step.
  * v0.9.5 — the PV total is centred in the run instead of hugging the panel
@@ -13,7 +13,7 @@
  * v0.8.5 — battery values keep clear of the artwork; second line for every consumer
  */
 (function () {
-  const CARD_VERSION = "0.9.5";
+  const CARD_VERSION = "0.9.10";
 
   // ---------------------------------------------------------------- helpers
   const num = (hass, id) => {
@@ -33,6 +33,18 @@
     return Math.round(w) + " W";
   };
   const fmtKWh = (v) => (v == null ? "–" : v.toFixed(1).replace(".", ",") + " kWh");
+  const energyKWh = (hass, id, configuredUnit) => {
+    const value = num(hass, id);
+    if (value == null) return null;
+    const unit = hass.states[id].attributes.unit_of_measurement || configuredUnit;
+    return unit === "kWh" ? value : unit === "Wh" ? value / 1000 : unit === "MWh" ? value * 1000 : null;
+  };
+  const fmtPvEnergy = (value) => value == null ? "– kWh" : value.toFixed(2).replace(".", ",") + " kWh";
+  const PV_FORECAST = [
+    { key: "forecast_today", label: "Heute" },
+    { key: "forecast_remaining", label: "Rest" },
+    { key: "forecast_tomorrow", label: "Morgen" },
+  ];
   const fmtMeter = (v) => (v == null ? "–" : new Intl.NumberFormat("de-DE", {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(v) + " kWh");
@@ -278,6 +290,7 @@
     }
 
     cfg.header = cfg.header || {};
+    cfg.pv = cfg.pv || {};
     cfg.solar = (cfg.solar || []).filter((x) => x && x.entity);
     cfg.batteries = (cfg.batteries || []).filter((x) => x && (x.soc || x.power));
     cfg.grid = cfg.grid || {};
@@ -580,6 +593,15 @@
   };
   const fan = (i, n, spread) => (n <= 1 ? 0 : (i - (n - 1) / 2) * spread);
 
+  function pvSpacing(d, compact, width) {
+    const summaryStacked = !!d.pvEnergy.entity && width < 350;
+    return {
+      headH: (compact ? 42 : 46) + (d.pvForecast.length ? 78 : 0) + (summaryStacked ? 22 : 0),
+      cellH: (compact ? 108 : 120) + (d.solar.some(s => s.energy_today) ? 26 : 0),
+      summaryStacked,
+    };
+  }
+
   /**
    * Ring layout for desktop and tablet.
    * @param split.right  number of consumers placed in the right-hand column
@@ -588,6 +610,7 @@
   function layoutRing(P, d, split) {
     const { vbw, pad, tileW, tileH, gap, houseR, leftW, lane } = P;
     const nodes = [], links = [];
+    const distribution = { right: null, rows: [], gap };
 
     const climW = tileW + 26;
     const climX = vbw - pad - climW;
@@ -598,15 +621,16 @@
     const nS = d.solar.length;
     let pvBottom = pad, pvNode = null;
     if (nS) {
-      const maxPvW = climX - (leftX + leftW) - 70;
-      const cellGap = 10, minCell = 98, maxCell = 136;
+      const maxPvW = climX - (leftX + leftW) - 34;
+      const cellGap = 12, minCell = 110, maxCell = 172;
       const perRow = Math.max(1, Math.min(nS, Math.floor((maxPvW - 36 + cellGap) / (minCell + cellGap))));
       const cellW = clamp((maxPvW - 36 - (perRow - 1) * cellGap) / perRow, minCell, maxCell);
       const rows = Math.ceil(nS / perRow);
-      const cellH = 78;
       const pvW = Math.round(perRow * cellW + (perRow - 1) * cellGap + 36);
-      const pvH = 46 + rows * cellH + (rows - 1) * 8 + 26;
-      pvNode = { t: "pvgroup", x: Math.round(centerX - pvW / 2), y: pad, w: pvW, h: pvH, cellW, cellH, cellGap, perRow, rows, total: d.pvTotal };
+      const spacing = pvSpacing(d, false, pvW);
+      const { cellH, headH } = spacing;
+      const pvH = headH + rows * cellH + (rows - 1) * 8 + 26;
+      pvNode = { t: "pvgroup", x: Math.round(centerX - pvW / 2), y: pad, w: pvW, h: pvH, cellW, ...spacing, cellGap, perRow, rows, total: d.pvTotal };
       nodes.push(pvNode);
       pvBottom = pad + pvH;
     }
@@ -618,7 +642,7 @@
     if (pvNode) {
       links.push({
         from: { x: pvNode.x + pvNode.w / 2, y: pvNode.y + pvNode.h },
-        to: housePort(house, "n"), cls: "prod", on: (d.pvTotal || 0) > 5, w: d.pvTotal,
+        to: housePort(house, "n"), flow: { type: "pv" },
         label: { text: fmtW(d.pvTotal), x: pvNode.x + pvNode.w / 2,
                  // Centred in the run between the PV frame and the house, so it
                  // crowds neither; 16 px is the floor when the run is short.
@@ -628,7 +652,7 @@
     }
 
     // ---- grid + storage on the left -------------------------------------
-    const gridW = Math.round(leftW * 0.66), gridH = 112;
+    const gridW = leftW, gridH = 168;
     const gridY = houseY - Math.round(gridH / 2) - 26;
     let leftBottom = gridY;
     if (d.grid.entity) {
@@ -636,8 +660,7 @@
       links.push({
         from: { x: leftX + gridW, y: gridY + gridH / 2 }, to: housePort(house, "w", -18),
         viaX: centerX - houseR - 18 - d.batteries.length * 16,
-        cls: d.gridImport ? "cons" : "prod", on: d.gridImport || d.gridExport, rev: d.gridExport,
-        w: d.gridValue,
+        flow: { type: "grid" },
       });
       leftBottom = gridY + gridH;
     }
@@ -652,7 +675,7 @@
           to: housePort(house, "w", 20 + i * 16),
           // stagger the vertical runs so parallel battery lines never overlap
           viaX: centerX - houseR - 18 - i * 16,
-          cls: b.charging ? "prod" : "disch", on: b.active, rev: b.charging, w: b.powerValue,
+          flow: { type: "battery", index: i },
         });
       });
     }
@@ -663,7 +686,8 @@
     const vis = d.consumers;
     const nRight = clamp(split?.right ?? Math.min(P.rightMax, vis.length), 0, vis.length);
     const tileX = climX + Math.round((climW - tileW) / 2);
-    const trunkX = Math.round(climX - lane / 2 - 6);
+    const trunkX = Math.round(Math.max(climX - lane / 2 - 6,
+      pvNode ? (pvNode.x + pvNode.w + climX) / 2 : 0));
     const stubs = [];
 
     let rightY = pad;
@@ -672,27 +696,19 @@
       const climH = 42 + d.climate.length * (cellH + 10) - 10 + 10;
       nodes.push({ t: "climate", x: climX, y: pad, w: climW, h: climH, cellH });
       d.climate.forEach((c, i) => {
-        stubs.push({ y: pad + 42 + i * (cellH + 10) + cellH / 2, x: climX, on: c.active, w: c.value });
+        stubs.push({ y: pad + 42 + i * (cellH + 10) + cellH / 2, x: climX, ref: ["climate", i] });
       });
       rightY = pad + climH + 16;
     }
     for (let i = 0; i < nRight; i++) {
       const y = rightY + i * (tileH + gap);
       nodes.push({ t: "load", i, x: tileX, y, w: tileW, h: tileH });
-      stubs.push({ y: y + tileH / 2, x: tileX, on: vis[i].active, w: vis[i].value });
+      stubs.push({ y: y + tileH / 2, x: tileX, ref: ["consumers", i] });
     }
     const rightBottom = nRight ? rightY + nRight * (tileH + gap) - gap : (d.climate.length ? rightY - 16 : pad);
 
     if (stubs.length) {
-      const anyRight = stubs.some((t) => t.on);
-      const top = stubs[0].y, bot = stubs[stubs.length - 1].y;
-      // feeder from the house to the trunk, then one short stub per tile
-      const rightW = stubs.reduce((t, x) => t + Math.abs(x.w || 0), 0);
-      links.push({ from: housePort(house, "e"), to: { x: trunkX, y: houseY }, cls: "cons", on: anyRight, w: rightW });
-      nodes.push({ t: "vbus", x: trunkX, y1: Math.min(top, houseY), y2: Math.max(bot, houseY), on: anyRight, w: rightW });
-      stubs.forEach((t) => {
-        links.push({ from: { x: trunkX, y: t.y }, to: { x: t.x, y: t.y }, cls: "cons", on: t.on, w: t.w, straight: true });
-      });
+      distribution.right = { x: trunkX, targets: stubs };
     }
 
     const rest = vis.length - nRight;
@@ -702,33 +718,25 @@
       const cols = clamp(split?.cols ?? Math.min(rest, maxCols), 1, maxCols);
       const rows = Math.ceil(rest / cols);
       const top = Math.max(leftBottom, rightBottom, houseY + houseR) + lane + 26;
-      const anyOn = vis.slice(nRight).some((c) => c.active);
-      // Total drawn by the tiles hanging off this bus, so the trunk pulses at
-      // the pace of everything it feeds rather than at a fixed speed.
-      const busW = vis.slice(nRight).reduce((t, c) => t + Math.abs(c.value || 0), 0);
       const busY = top - 24;
-      links.push({ from: housePort(house, "s"), to: { x: centerX, y: busY }, cls: "cons", on: anyOn, w: busW, straight: true });
       for (let r = 0; r < rows; r++) {
         const n = Math.min(cols, rest - r * cols);
         const rowW = n * tileW + (n - 1) * gap;
         const x0 = Math.round((vbw - rowW) / 2);
         const y = top + r * (tileH + gap + 26);
         const bY = r === 0 ? busY : y - 24;
-        nodes.push({ t: "bus", x1: x0 + tileW / 2, x2: x0 + rowW - tileW / 2, y: bY, on: r === 0 && anyOn, w: busW });
-        if (r > 0) {
-          const prevBottom = top + (r - 1) * (tileH + gap + 26) + tileH;
-          links.push({ from: { x: centerX, y: prevBottom }, to: { x: centerX, y: bY }, cls: "cons", on: false, straight: true });
-        }
+        const row = { y: bY, targets: [] };
         for (let c = 0; c < n; c++) {
           const idx = nRight + r * cols + c;
           const x = x0 + c * (tileW + gap);
           nodes.push({ t: "load", i: idx, x, y, w: tileW, h: tileH });
-          links.push({ from: { x: x + tileW / 2, y: bY }, to: { x: x + tileW / 2, y }, cls: "cons", on: vis[idx].active, w: vis[idx].value, straight: true });
+          row.targets.push({ x: x + tileW / 2, y, left: x, width: tileW, ref: ["consumers", idx] });
         }
+        distribution.rows.push(row);
         vbh = y + tileH + pad;
       }
     }
-    return { vbw, vbh: Math.round(vbh), nodes, links, centerX, houseY };
+    return { vbw, vbh: Math.round(vbh), nodes, links, centerX, houseY, distribution };
   }
 
   /**
@@ -799,6 +807,7 @@
   function layoutStack(P, d) {
     const { vbw, pad, gap, houseR, cols, lane } = P;
     const nodes = [], links = [];
+    const distribution = { right: null, rows: [], gap };
     const tileW = Math.floor((vbw - 2 * pad - (cols - 1) * gap) / cols);
     const tileH = P.tileH;
     const centerX = Math.round(vbw / 2);
@@ -810,15 +819,16 @@
       const perRow = Math.min(nS, nS <= 2 ? nS : nS === 4 ? 2 : 3);
       const cellW = Math.floor((vbw - 2 * pad - 28 - (perRow - 1) * cellGap) / perRow);
       const rows = Math.ceil(nS / perRow);
-      const cellH = 74;
-      const pvH = 42 + rows * cellH + (rows - 1) * 8 + 24;
-      pvNode = { t: "pvgroup", x: pad, y: pad, w: vbw - 2 * pad, h: pvH, cellW, cellH, cellGap, perRow, rows, total: d.pvTotal, compact: true };
+      const spacing = pvSpacing(d, true, vbw - 2 * pad);
+      const { cellH, headH } = spacing;
+      const pvH = headH + rows * cellH + (rows - 1) * 8 + 24;
+      pvNode = { t: "pvgroup", x: pad, y: pad, w: vbw - 2 * pad, h: pvH, cellW, ...spacing, cellGap, perRow, rows, total: d.pvTotal, compact: true };
       nodes.push(pvNode);
       pvBottom = pad + pvH;
     }
 
     const sideW = Math.floor((vbw - 2 * pad - 2 * houseR - 76) / 2);
-    const gridH = 92, batH = P.batH;
+    const gridH = 122, batH = P.batH;
     const batsH = d.batteries.length ? d.batteries.length * (batH + 8) - 8 : 0;
     const sideH = Math.max(d.grid.entity ? gridH : 0, batsH, houseR * 2);
     const rowTop = pvBottom + (nS ? lane + 18 : 10);
@@ -828,7 +838,7 @@
     if (pvNode) {
       links.push({
         from: { x: centerX, y: pvBottom }, to: housePort(house, "n"),
-        cls: "prod", on: (d.pvTotal || 0) > 5, w: d.pvTotal, straight: true,
+        flow: { type: "pv" }, straight: true,
         label: { text: fmtW(d.pvTotal), x: centerX,
                  y: labelY(pvBottom, houseY - houseR, 15, 12),
                  cls: "pv-total-sm", size: 15, knockout: true },
@@ -839,7 +849,7 @@
       nodes.push({ t: "grid", x: pad, y: gy, w: sideW, h: gridH, compact: true });
       links.push({
         from: { x: pad + sideW, y: houseY }, to: housePort(house, "w"),
-        cls: d.gridImport ? "cons" : "prod", on: d.gridImport || d.gridExport, rev: d.gridExport, w: d.gridValue, straight: true,
+        flow: { type: "grid" }, straight: true,
       });
     }
     const batX = vbw - pad - sideW;
@@ -849,7 +859,7 @@
       links.push({
         from: { x: batX, y: by + batH / 2 },
         to: housePort(house, "e", fan(i, d.batteries.length, 14)),
-        cls: b.charging ? "prod" : "disch", on: b.active, rev: b.charging, w: b.powerValue,
+        flow: { type: "battery", index: i },
       });
     });
     nodes.push(house);
@@ -860,30 +870,95 @@
     if (items.length) {
       const busY = rowBottom + lane;
       const rows = Math.ceil(items.length / cols);
-      const anyOn = items.some((c) => c.active);
-      const busW = items.reduce((t, c) => t + Math.abs(c.value || 0), 0);
-      links.push({ from: housePort(house, "s"), to: { x: centerX, y: busY }, cls: "cons", on: anyOn, w: busW, straight: true });
       for (let r = 0; r < rows; r++) {
         const n = Math.min(cols, items.length - r * cols);
         const rowW = n * tileW + (n - 1) * gap;
         const x0 = Math.round((vbw - rowW) / 2);
         const y = busY + 22 + r * (tileH + gap + 22);
         const bY = r === 0 ? busY : y - 22;
-        nodes.push({ t: "bus", x1: x0 + tileW / 2, x2: x0 + rowW - tileW / 2, y: bY, on: r === 0 && anyOn, w: busW });
-        if (r > 0) {
-          const prevBottom = busY + 22 + (r - 1) * (tileH + gap + 22) + tileH;
-          links.push({ from: { x: centerX, y: prevBottom }, to: { x: centerX, y: bY }, cls: "cons", on: false, straight: true });
-        }
+        const row = { y: bY, targets: [] };
         for (let c = 0; c < n; c++) {
           const idx = r * cols + c;
           const x = x0 + c * (tileW + gap);
           nodes.push({ t: "stacktile", i: idx, x, y, w: tileW, h: tileH });
-          links.push({ from: { x: x + tileW / 2, y: bY }, to: { x: x + tileW / 2, y }, cls: "cons", on: items[idx].active, w: items[idx].value, straight: true });
+          row.targets.push({ x: x + tileW / 2, y, left: x, width: tileW, ref: ["stackTiles", idx] });
         }
+        distribution.rows.push(row);
         vbh = y + tileH + pad;
       }
     }
-    return { vbw, vbh: Math.round(vbh), nodes, links, centerX, houseY };
+    return { vbw, vbh: Math.round(vbh), nodes, links, centerX, houseY, distribution };
+  }
+
+  // Each edge points away from the house and owns only its downstream loads.
+  // The same tree supplies both live activation and cumulative animation distance.
+  function consumerNetwork(L) {
+    const house = L.nodes.find(n => n.t === "house");
+    const { right, rows, gap } = L.distribution;
+    const refs = targets => targets.map(t => t.ref);
+    const edge = (from, to, targets, parent, straight = true) => {
+      if (from.x === to.x && from.y === to.y) return parent;
+      const index = L.links.length;
+      L.links.push({ from, to, parent, straight, flow: { type: "consumer", refs: targets } });
+      return index;
+    };
+    const branch = (origin, targets, axis, parent) => {
+      const sides = [
+        targets.filter(t => t[axis] < origin[axis]).sort((a, b) => b[axis] - a[axis]),
+        targets.filter(t => t[axis] >= origin[axis]).sort((a, b) => a[axis] - b[axis]),
+      ];
+      for (const side of sides) {
+        let from = origin, previous = parent;
+        side.forEach((target, i) => {
+          const junction = { ...origin, [axis]: target[axis] };
+          const feed = edge(from, junction, refs(side.slice(i)), previous);
+          edge(junction, { x: target.x, y: target.y }, [target.ref], feed);
+          from = junction;
+          previous = feed;
+        });
+      }
+    };
+    if (right) {
+      const origin = { x: right.x, y: house.y };
+      const feed = edge(housePort(house, "e"), origin, refs(right.targets), null, false);
+      branch(origin, right.targets, "y", feed);
+    }
+    if (rows.length) {
+      const first = rows[0].targets;
+      // A shared down-feed must use a tile gap, never pass through an appliance.
+      const gaps = first.slice(1).map((t, i) => (first[i].left + first[i].width + t.left) / 2);
+      const choices = gaps.length ? gaps : [first[0].left - gap / 2];
+      const x = rows.length === 1 ? house.x
+        : choices.reduce((a, b) => Math.abs(a - house.x) <= Math.abs(b - house.x) ? a : b);
+      let from = housePort(house, "s"), parent = null;
+      rows.forEach((row, i) => {
+        const junction = { x, y: row.y };
+        const feed = edge(from, junction, refs(rows.slice(i).flatMap(r => r.targets)), parent, i > 0);
+        branch(junction, row.targets, "x", feed);
+        from = junction;
+        parent = feed;
+      });
+    }
+    return L;
+  }
+
+  function liveFlow(link, data) {
+    switch (link.flow.type) {
+      case "pv":
+        return { cls: "prod", on: data.pvTotal > 5, rev: false };
+      case "grid":
+        return { cls: data.gridImport ? "cons" : "prod",
+          on: data.gridImport || data.gridExport, rev: data.gridExport };
+      case "battery": {
+        const battery = data.batteries[link.flow.index];
+        return { cls: battery.charging ? "prod" : "disch",
+          on: battery.active, rev: battery.charging };
+      }
+      case "consumer":
+        return { cls: "cons", on: link.flow.refs.some(([collection, i]) => data[collection][i].active), rev: false };
+      default:
+        throw new Error("Unknown energy flow connection: " + link.flow.type);
+    }
   }
 
   /**
@@ -975,6 +1050,13 @@
       const pts = best ? best.pts : R.route(k.from, k.to, [...skip]);
       k.d = toPath(pts, Math.max(9, cell));
       placed.push(pts);
+    });
+    const measure = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    L.links.forEach(k => {
+      measure.setAttribute("d", k.d);
+      k.length = measure.getTotalLength();
+      const parent = k.parent == null ? null : L.links[k.parent];
+      k.distance = parent ? parent.distance + parent.length : 0;
     });
     return L;
   }
@@ -1128,45 +1210,30 @@
        instead of the hard-edged capsule a single dash pattern produces — the
        hard edges were what made the old version read as a repeating pattern
        rather than as something flowing. */
-    /* Every wire declares pathLength="100", so these dash figures are read as
-       percentages of that wire's own length. One period therefore equals one
-       whole wire: a surge runs from one end clean through to the other and the
-       next enters exactly as it leaves. A fixed period in user units could not
-       do this — it fitted three comets onto a long bus bar (a visible repeating
-       chain) while leaving a short stub empty most of the time. */
-    /* Every wire declares pathLength="100", so these figures are percentages of
-       that wire's own length: one period equals one whole wire, and a surge
-       runs end to end instead of looping within it.
-
-       Forward and reverse need different geometry. Going forward the layers
-       share their RIGHT edge, so the bright short layer sits at the front and
-       the long faint ones trail behind. Reversing that motion without also
-       swapping the shared edge put the faint tail in front and the bright head
-       at the back — the surge appeared to run inside out. In reverse every
-       layer therefore shares its LEFT edge instead, which is the leading edge
-       when travelling leftwards. */
+    /* Fixed SVG-unit spacing and distance from the house keep a pulse continuous
+       through every junction. Reverse flow shares the opposite leading edge. */
     .cm1 { stroke-width:4.2; opacity:1.0; stroke-dasharray:5 95; stroke-dashoffset:5; }
     .cm1.run { animation: cm1f var(--sp,3s) linear infinite; animation-delay:var(--dl,0s); }
-    @keyframes cm1f { from { stroke-dashoffset:5; } to { stroke-dashoffset:-95; } }
+    @keyframes cm1f { from { stroke-dashoffset:calc(5px + var(--fo,0px)); } to { stroke-dashoffset:calc(-95px + var(--fo,0px)); } }
     .cm2 { stroke-width:3.9; opacity:0.55; stroke-dasharray:12 88; stroke-dashoffset:12; }
     .cm2.run { animation: cm2f var(--sp,3s) linear infinite; animation-delay:var(--dl,0s); }
-    @keyframes cm2f { from { stroke-dashoffset:12; } to { stroke-dashoffset:-88; } }
+    @keyframes cm2f { from { stroke-dashoffset:calc(12px + var(--fo,0px)); } to { stroke-dashoffset:calc(-88px + var(--fo,0px)); } }
     .cm3 { stroke-width:3.5; opacity:0.33; stroke-dasharray:22 78; stroke-dashoffset:22; }
     .cm3.run { animation: cm3f var(--sp,3s) linear infinite; animation-delay:var(--dl,0s); }
-    @keyframes cm3f { from { stroke-dashoffset:22; } to { stroke-dashoffset:-78; } }
+    @keyframes cm3f { from { stroke-dashoffset:calc(22px + var(--fo,0px)); } to { stroke-dashoffset:calc(-78px + var(--fo,0px)); } }
     .cm4 { stroke-width:3.1; opacity:0.19; stroke-dasharray:35 65; stroke-dashoffset:35; }
     .cm4.run { animation: cm4f var(--sp,3s) linear infinite; animation-delay:var(--dl,0s); }
-    @keyframes cm4f { from { stroke-dashoffset:35; } to { stroke-dashoffset:-65; } }
+    @keyframes cm4f { from { stroke-dashoffset:calc(35px + var(--fo,0px)); } to { stroke-dashoffset:calc(-65px + var(--fo,0px)); } }
     .cm5 { stroke-width:2.7; opacity:0.1; stroke-dasharray:50 50; stroke-dashoffset:50; }
     .cm5.run { animation: cm5f var(--sp,3s) linear infinite; animation-delay:var(--dl,0s); }
-    @keyframes cm5f { from { stroke-dashoffset:50; } to { stroke-dashoffset:-50; } }
+    @keyframes cm5f { from { stroke-dashoffset:calc(50px + var(--fo,0px)); } to { stroke-dashoffset:calc(-50px + var(--fo,0px)); } }
     .cm6 { stroke-width:2.3; opacity:0.045; stroke-dasharray:68 32; stroke-dashoffset:68; }
     .cm6.run { animation: cm6f var(--sp,3s) linear infinite; animation-delay:var(--dl,0s); }
-    @keyframes cm6f { from { stroke-dashoffset:68; } to { stroke-dashoffset:-32; } }
+    @keyframes cm6f { from { stroke-dashoffset:calc(68px + var(--fo,0px)); } to { stroke-dashoffset:calc(-32px + var(--fo,0px)); } }
     /* Shared leading edge on the left; identical for every layer. */
     .cm1.run.rev, .cm2.run.rev, .cm3.run.rev,
     .cm4.run.rev, .cm5.run.rev, .cm6.run.rev { animation-name: cm-rev; }
-    @keyframes cm-rev { from { stroke-dashoffset:-100; } to { stroke-dashoffset:0; } }
+    @keyframes cm-rev { from { stroke-dashoffset:calc(-100px + var(--fo,0px)); } to { stroke-dashoffset:var(--fo,0px); } }
 
     .cm1.prod  { filter:drop-shadow(0 0 7px var(--sc-glow-prod, rgba(34,230,164,.95))); }
     .cm1.cons  { filter:drop-shadow(0 0 7px var(--sc-glow-cons, rgba(255,95,109,.95))); }
@@ -1177,10 +1244,13 @@
     @keyframes core-breathe { 0%,100% { opacity:.28; } 50% { opacity:.46; } }
 
     /* Legacy look, still selectable from the configuration. */
-    .dash { stroke-width:2.4; opacity:.9; stroke-dasharray: 6 12; animation: dashmove 1s linear infinite; }
-    @keyframes dashmove { to { stroke-dashoffset:-18; } }
-    .dash.rev { animation: dashrev 1s linear infinite; }
-    @keyframes dashrev { to { stroke-dashoffset:18; } }
+    .dash { stroke-width:2.4; opacity:.9; stroke-dasharray: 6 12;
+      animation: dashmove .216s linear infinite; animation-delay:var(--dl,0s); }
+    @keyframes dashmove { from { stroke-dashoffset:var(--fo,0px); } to { stroke-dashoffset:calc(-18px + var(--fo,0px)); } }
+    .dash.rev { animation-name:dashrev; }
+    @keyframes dashrev { from { stroke-dashoffset:var(--fo,0px); } to { stroke-dashoffset:calc(18px + var(--fo,0px)); } }
+    .flow-hidden { visibility:hidden; }
+    .wire-steady { stroke-width:3; opacity:.8; }
     .center { filter: var(--sc-center-glow, drop-shadow(0 0 16px rgba(0,170,255,.35))); }
     .socbar-bg { fill: var(--sc-bar-bg); }
     /* Tiles used to breathe between 85% and 100% opacity permanently. It
@@ -1189,7 +1259,7 @@
     .pulse { opacity:1; }
     .clickable { cursor:pointer; }
     @media (prefers-reduced-motion: reduce) {
-      .dash, .rev, .pulse { animation:none; }
+      .dash, .run, .wire-core.live, .pulse { animation:none; }
     }`;
 
   // -------------------------------------------------------------- svg pieces
@@ -1199,7 +1269,7 @@
   // — which is exactly what made the icons scatter across the card in Safari.
   // A native path is laid out by the same transform as everything else and is
   // therefore identical in Safari, Edge/Chromium and Brave.
-  const ICONS = (window.__modernEnergyDashboardIconCache = window.__modernEnergyDashboardIconCache || {});
+  const ICONS = (window.__modernEnergyCardIconCache = window.__modernEnergyCardIconCache || {});
 
   /**
    * Resolve an "mdi:name" to its raw path data by asking Home Assistant's own
@@ -1273,77 +1343,12 @@
     return t.length <= max ? t : t.slice(0, max - 1) + "…";
   }
 
-  /**
-   * How fast a pulse should travel, as a CSS duration. Power is mapped
-   * logarithmically because household loads span four orders of magnitude:
-   * a 2 W standby drifts, a 3 kW oven races.
-   */
-  /**
-   * Approximate length of a path made of M / L / H / V / Q commands, which is
-   * all toPath() emits. Needed so a long cable takes proportionally longer to
-   * traverse — otherwise a bus bar would appear to carry current several times
-   * faster than a short stub.
-   */
-  function pathLen(d) {
-    const t = d.match(/[MLHVQ]|-?[\d.]+/g) || [];
-    let i = 0, cmd = "M", x = 0, y = 0, len = 0;
-    const num = () => parseFloat(t[i++]);
-    while (i < t.length) {
-      if (/[MLHVQ]/.test(t[i])) { cmd = t[i++]; continue; }
-      let nx = x, ny = y;
-      if (cmd === "M" || cmd === "L") { nx = num(); ny = num(); }
-      else if (cmd === "H") { nx = num(); }
-      else if (cmd === "V") { ny = num(); }
-      else if (cmd === "Q") {
-        const cx = num(), cy = num(); nx = num(); ny = num();
-        // Control polygon is a close enough stand-in for a small corner arc.
-        len += (Math.hypot(cx - x, cy - y) + Math.hypot(nx - cx, ny - cy)) * 0.55;
-        x = nx; y = ny; continue;
-      }
-      if (cmd !== "M") len += Math.hypot(nx - x, ny - y);
-      x = nx; y = ny;
-    }
-    return len;
-  }
-
-  /**
-   * Duration for one full traversal. Power sets how fast the light travels
-   * (units per second); the wire's own length then decides how long that takes,
-   * so every cable in the diagram carries current at a consistent-looking pace.
-   */
-  function wireSpeed(w, len) {
-    const a = Math.abs(Number(w) || 0);
-    const t = Math.log10(1 + a) / Math.log10(3001);
-    const perSec = 95 + 265 * t;                    // 95…360 units per second
-    // The floor keeps a short stub from flashing; the ceiling stops a long bus
-    // bar from feeling becalmed when barely any power runs through it.
-    return clamp((len || 300) / perSec, 0.9, 5.2).toFixed(2) + "s";
-  }
-
-  /**
-   * Stable pseudo-random phase for one wire, so neighbouring cables do not
-   * surge in lockstep. Marching in step is a large part of what makes an
-   * animation look like a loop rather than like current moving.
-   */
-  function wirePhase(dAttr, sp) {
-    let h = 0;
-    for (let i = 0; i < dAttr.length; i++) h = (h * 31 + dAttr.charCodeAt(i)) >>> 0;
-    return (h % 1000) / 1000 * parseFloat(sp);
-  }
-
-  // Wall clock the animations are anchored to. The SVG is rebuilt on every
-  // state update — several times a second — and a freshly inserted element
-  // restarts its animation from the beginning. Anchoring the phase to elapsed
-  // time instead means a rebuilt wire resumes exactly where it would have been,
-  // so the surge keeps travelling instead of snapping back on every update.
+  // One clock for all branches; animation shows activity, not source percentages.
   const T0 = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
   const nowSec = () => (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000 - T0;
 
-  /** Negative animation-delay that places a wire at its correct phase right now. */
-  function wireDelay(dAttr, sp) {
-    const dur = parseFloat(sp) || 3;
-    const t = (nowSec() + wirePhase(dAttr, sp)) % dur;
-    return (-t).toFixed(3) + "s";
+  function wireDelay(duration = 1.2) {
+    return (-(nowSec() % duration)).toFixed(3) + "s";
   }
 
   /**
@@ -1352,28 +1357,25 @@
    *   strich the original moving dashes
    *   ruhig  no motion at all
    */
-  function wireSvg(dAttr, cls, on, rev, watts, style) {
+  function wireSvg(dAttr, cls, on, rev, distance, style) {
     if (!dAttr) return "";
     const c = on ? cls : "idle";
+    const hidden = on ? "" : " flow-hidden";
+    const r = rev ? " rev" : "";
+    const period = style === "strich" ? 18 : 100;
+    const sp = ` style="--sp:1.2s;--fo:${((distance || 0) % period).toFixed(3)}px"`;
     if (style === "strich") {
-      return `<path class="flow ${c} ${on ? "dash" : ""} ${on && rev ? "rev" : ""}" d="${dAttr}"/>`;
+      return `<path class="flow wire-core ${c}" d="${dAttr}"/>
+        <path class="flow ${c} dash${r}${hidden}" d="${dAttr}"${sp}/>`;
     }
-    let out = "";
-    if (on) out += `<path class="flow wire-halo ${c}" d="${dAttr}"/>`;
-    const live = on && style !== "ruhig";
-    // Only --sp goes into the markup; --dl is applied afterwards from the clock
-    // so the generated string stays stable between updates and can be compared.
-    const sp = ` style="--sp:${wireSpeed(watts, pathLen(dAttr))}"`;
-    out += `<path class="flow wire-core ${c}${live ? " live" : ""}" d="${dAttr}"${sp}/>`;
-    if (live) {
-      const r = rev ? " rev" : "";
-      // Painted back to front so the bright head is never dulled by the faint
-      // layers that trail it.
-      for (let i = 6; i >= 1; i--) {
-        out += `<path class="flow cm${i} ${c} run${r}" pathLength="100" d="${dAttr}"${sp}/>`;
-      }
-    } else if (on) {
-      out += `<path class="flow ${c}" d="${dAttr}" style="stroke-width:3;opacity:.8"/>`;
+    if (style === "ruhig") {
+      return `<path class="flow wire-core ${c}${on ? " wire-steady" : ""}" d="${dAttr}"/>`;
+    }
+    // Keep the same DOM nodes when a load turns on/off; hidden pulses keep time.
+    let out = `<path class="flow wire-halo ${c}${hidden}" d="${dAttr}"/>
+      <path class="flow wire-core ${c}${on ? " live" : ""}" d="${dAttr}"${sp}/>`;
+    for (let i = 6; i >= 1; i--) {
+      out += `<path class="flow cm${i} ${c} run${r}${hidden}" d="${dAttr}"${sp}/>`;
     }
     return out;
   }
@@ -1398,6 +1400,15 @@
     const seen = new Set();
     for (const a of next.attributes) {
       seen.add(a.name);
+      if (a.name === "style") {
+        const delay = live.style.getPropertyValue("--dl");
+        if (live.getAttribute("style") !== a.value) live.setAttribute("style", a.value);
+        if (delay) live.style.setProperty("--dl", delay);
+        continue;
+      }
+      if (a.name === "class" && live.classList.contains("rev") !== next.classList.contains("rev")) {
+        live.style.setProperty("--dl", wireDelay(next.classList.contains("dash") ? .216 : 1.2));
+      }
       if (live.getAttribute(a.name) !== a.value) live.setAttribute(a.name, a.value);
     }
     for (const a of [...live.attributes]) {
@@ -1514,44 +1525,74 @@
              w: +w.toFixed(1), h: +h.toFixed(1) };
   }
 
-  function batterySvg(x, y, w, h, b, compact) {
-    const soc = b.socValue == null ? 0 : clamp(b.socValue, 0, 100);
-    const barX = x + 13, barY = y + 12, barW = compact ? 12 : 16, barH = h - (compact ? 44 : 58);
-    const fillH = (barH * soc) / 100;
-    const col = soc <= 15 ? "#ff5d6c" : soc >= 95 ? "#22e6a4" : "#37c8ff";
-    const iSize = compact ? 30 : 44;
-    // A photo needs more room than a glyph to stay readable, and the space to
-    // the right of the percentage is empty anyway.
-    // Kept clear of the value line at the bottom of the tile.
-    const artH = b.image ? (compact ? 32 : 46) : iSize;
-    const artW = b.image ? (compact ? 64 : 92) : iSize;
-    const artX = x + w - artW - (b.image ? 10 : 12);
-    const artY = y + (b.image ? 9 : 11);
-    const state = b.powerValue == null ? "" : b.charging ? "lädt" : b.active ? "entlädt" : "hält";
-    const line = `${fmtW(b.powerValue)}${state ? " · " + state : ""}`;
+function step1Image(config, light) {
+  return light && config.image_light ? config.image_light : config.image;
+}
 
-    // The power line used to be centred in the tile, so a wide value such as
-    // "-548 W · lädt" grew straight into the artwork on the right. It now
-    // starts at the same left edge as the percentage and is limited to the
-    // space before the artwork, shrinking rather than colliding.
-    const textX = barX + barW + 11;
-    const roomW = Math.max(40, artX - 8 - textX);
-    const baseF = compact ? 13 : 15;
-    const valF = fitFont(line, roomW, baseF, compact ? 10 : 11);
+function step1Fit(text, width, size, weight) {
+  let result=size;
+  while(result>8 && measureText(String(text),result,weight)>width)result--;
+  return result;
+}
 
-    return `<g class="pulse${b.soc ? " clickable" : ""}"${b.soc ? ` data-entity="${esc(b.soc)}"` : ""}>
-      <rect class="glass" x="${x}" y="${y}" width="${w}" height="${h}" rx="14"/>
-      <rect class="socbar-bg" x="${barX}" y="${barY}" width="${barW}" height="${barH}" rx="5"/>
-      <rect x="${barX}" y="${barY + barH - fillH}" width="${barW}" height="${fillH}" rx="5" fill="${inkify(col, LIGHT)}" style="filter:drop-shadow(${LIGHT ? `0 0 7px ${col}66` : `0 0 6px ${col}`})"/>
-      ${artwork(artX, artY, artH, b.image, b.icon || "mdi:battery", col, col + "88", artW)}
-      <text x="${textX}" y="${y + (compact ? 27 : 30)}" font-size="${compact ? 18 : 22}" font-weight="700">${b.socValue == null ? "–" : Math.round(soc) + "%"}</text>
-      <text x="${textX}" y="${y + (compact ? 44 : 50)}" font-size="${compact ? 12 : 13}" font-weight="600">${esc(b.name || "")}</text>
-      <text class="tileVal" x="${textX}" y="${y + h - (compact ? 10 : 14)}" style="font-size:${valF}px">${esc(line)}</text>
-    </g>`;
-  }
+function step1Grid(n,d,config) {
+  const compact=n.compact;
+  const size=compact?16:26, labelSize=compact?11:16;
+  const value=fmtW(d.gridDisplayValue);
+  const name=d.gridDisplayValue == null ? "Netz nicht verfügbar"
+    : d.gridDisplayValue > 0 ? "Netzbezug"
+    : d.gridDisplayValue < 0 ? "Einspeisung" : config.name || "Netz";
+  const image=step1Image(config,LIGHT);
+  const left=n.x+(compact?61:111), room=n.x+n.w-left-12;
+  const imgW=compact?45:86, imgH=compact?60:102;
+  const body=`<g class="clickable step1-grid" data-entity="${esc(config.entity)}">
+    <rect class="glass" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="16"/>
+    ${artwork(n.x+12,n.y+9,imgH,image,config.icon||"mdi:transmission-tower", "#7fd4ff",undefined,imgW)}
+    <text class="step1-grid-label" x="${left}" y="${n.y+(compact?24:31)}"
+      style="font-size:${step1Fit(name,room,labelSize,600)}px;font-weight:600;fill:var(--sc-ink-soft)">${esc(name)}</text>
+    <text class="step1-grid-value" x="${left}" y="${n.y+(compact?46:65)}"
+      style="font-size:${step1Fit(value,room,size,700)}px;font-weight:700">${esc(value)}</text>
+    ${!compact?`<path d="M ${n.x+16} ${n.y+113} H ${n.x+n.w-16}" stroke="var(--sc-tile-line)" stroke-width="1"/>`:""}
+    ${config.import_today?`<text class="step1-grid-daily" x="${n.x+14}" y="${n.y+(compact?90:134)}" style="font-size:${compact?9:12}px;fill:var(--sc-ink-soft)">Bezug heute</text>
+      <text x="${n.x+n.w-14}" y="${n.y+(compact?90:134)}" text-anchor="end"
+       style="font-size:${compact?10:13}px">${esc(fmtKWh(d.gridImportToday))}</text>`:""}
+    ${config.export_today?`<text class="step1-grid-daily" x="${n.x+14}" y="${n.y+(compact?109:155)}" style="font-size:${compact?9:12}px;fill:var(--sc-ink-soft)">Einspeisung</text>
+      <text x="${n.x+n.w-14}" y="${n.y+(compact?109:155)}" text-anchor="end"
+       style="font-size:${compact?10:13}px">${esc(fmtKWh(d.gridExportToday))}</text>`:""}
+  </g>`;
+  return body;
+}
+
+function step1Battery(x,y,w,h,b,compact) {
+  const level=b.socValue==null?0:clamp(b.socValue,0,100);
+  const accent=level<=15?"#ff5d6c":level>=95?"#22e6a4":"#37c8ff";
+  const label=b.name||"";
+  const state=b.powerValue==null?"":b.charging?"lädt":b.active?"entlädt":"hält";
+  const power=`${fmtW(b.powerValue)}${state?" · "+state:""}`;
+  const image=step1Image(b,LIGHT);
+  const artW=compact?31:57, artH=compact?44:59;
+  const artX=x+w-artW-10, textX=x+(compact?29:36);
+  const room=artX-textX-7;
+  const soc=b.socValue==null?"–":Math.round(level)+" %";
+  const barW=compact?8:11,barH=compact?36:45,barX=x+12,barY=y+10;
+  return `<g class="step1-battery clickable" data-entity="${esc(b.soc||b.power)}">
+    <rect class="glass" x="${x}" y="${y}" width="${w}" height="${h}" rx="14"/>
+    <rect class="socbar-bg" x="${barX}" y="${barY}" width="${barW}" height="${barH}" rx="4"/>
+    <rect x="${barX}" y="${barY+barH*(1-level/100)}" width="${barW}" height="${barH*level/100}" rx="4" fill="${inkify(accent,LIGHT)}"/>
+    ${artwork(artX,y+5,artH,image,b.icon||"mdi:battery",accent,undefined,artW)}
+    <text class="step1-battery-soc" x="${textX}" y="${y+(compact?26:31)}"
+      style="font-size:${step1Fit(soc,room,compact?17:23,700)}px;font-weight:700">${esc(soc)}</text>
+    <text class="step1-battery-name" x="${textX}" y="${y+(compact?44:51)}"
+      style="font-size:${step1Fit(label,room,compact?11:14,600)}px;font-weight:600;fill:var(--sc-ink-soft)">${esc(label)}</text>
+    <text class="step1-battery-power" x="${textX}" y="${y+h-11}"
+      style="font-size:${step1Fit(power,x+w-10-textX,compact?11:14,650)}px;font-weight:650">${esc(power)}</text>
+  </g>`;
+}
+
+  function batterySvg(x,y,w,h,b,compact) { return step1Battery(x,y,w,h,b,compact); }
 
   // ------------------------------------------------------------------- card
-  class ModernEnergyDashboardFlowCard extends HTMLElement {
+  class ModernEnergyPvCard extends HTMLElement {
     setConfig(config) {
       this._raw = config || {};
       this._config = normalize(this._raw);
@@ -1564,7 +1605,7 @@
       if (this._built === false && this.shadowRoot.firstChild) { this.shadowRoot.innerHTML = ""; }
     }
 
-    static getConfigElement() { return document.createElement("modern-energy-dashboard-flow-card-editor"); }
+    static getConfigElement() { return document.createElement("modern-energy-pv-card-editor"); }
 
     static getStubConfig(hass) {
       const find = (re) => Object.keys(hass?.states || {}).find((id) => re.test(id)) || "";
@@ -1663,6 +1704,8 @@
       }
     }
     disconnectedCallback() {
+      clearTimeout(this._gridDisplayTimer);
+      this._gridDisplayTimer = null;
       if (this._ro) { this._ro.disconnect(); this._ro = null; }
       if (this._onWinResize) {
         window.removeEventListener("resize", this._onWinResize);
@@ -1716,11 +1759,39 @@
       if (!this._mode) { this._mode = pickMode(this.clientWidth, this._config); this.setAttribute("data-mode", this._mode); }
     }
 
+    _sampleGridDisplay(value) {
+      const now = performance.now();
+      const due = this._gridDisplayAt == null || now - this._gridDisplayAt >= 5000;
+      // Label and signed value share a sample; availability and flow stay live.
+      if (value == null) {
+        this._gridDisplayValue = null;
+        this._gridDisplayAt = null;
+      }
+      else if (due) {
+        this._gridDisplayValue = value;
+        this._gridDisplayAt = now;
+      }
+      if (this.isConnected && !this._gridDisplayTimer) {
+        const delay = value == null || this._gridDisplayAt == null ? 5000
+          : Math.max(1, 5000 - (now - this._gridDisplayAt));
+        this._gridDisplayTimer = setTimeout(() => {
+          this._gridDisplayTimer = null;
+          this._update();
+        }, delay);
+      }
+      return this._gridDisplayValue ?? null;
+    }
+
     /** Collect all live values once per update. */
     _data() {
       const hass = this._hass, c = this._config;
-      const solar = c.solar.map((s) => ({ ...s, value: num(hass, s.entity) }));
+      const solar = c.solar.map((s) => ({ ...s, value: num(hass, s.entity),
+        energyToday: energyKWh(hass, s.energy_today, s.energy_today_unit) }));
       const pvTotal = solar.reduce((a, s) => a + (s.value || 0), 0);
+      const pvEnergy = { entity: c.pv.energy_today, value: energyKWh(hass, c.pv.energy_today) };
+      const pvForecast = PV_FORECAST.filter(f => c.pv[f.key]).map(f => ({
+        ...f, entity: c.pv[f.key], value: energyKWh(hass, c.pv[f.key]),
+      }));
       const batteries = c.batteries.map((b) => {
         const p = num(hass, b.power);
         const inv = b.invert ? -1 : 1;
@@ -1734,7 +1805,7 @@
         const p = num(hass, cl.entity);
         const st = cl.state_entity ? hass.states[cl.state_entity] : null;
         const on = p != null ? p > (cl.threshold ?? 3)
-          : st ? !["off", "unavailable", "unknown"].includes(st.state) : false;
+          : !cl.entity && st ? !["off", "unavailable", "unknown"].includes(st.state) : false;
         return { ...cl, value: p, stateText: st ? hass.formatEntityState(st) : null, active: on,
                  metricValues: (cl.metrics || []).map((m) => ({ ...m, value: num(hass, m.entity) })) };
       });
@@ -1764,8 +1835,8 @@
         secondaryText: cl.metricValues.length ? `${cl.metricValues[0].label} ${fmtBy(cl.metricValues[0].unit || "kWh", cl.metricValues[0].value)}` : null,
       })).concat(consumers.map((x) => ({ kind: "load", ...x })));
       return {
-        solar, pvTotal, batteries, climate, consumers, stackTiles,
-        grid: c.grid, gridValue,
+        solar, pvTotal, pvEnergy, pvForecast, batteries, climate, consumers, stackTiles,
+        grid: c.grid, gridValue, gridDisplayValue: this._sampleGridDisplay(gridValue),
         gridImport: gridValue != null && gridValue > 5,
         gridExport: gridValue != null && gridValue < -5,
         gridImportToday: num(hass, c.grid.import_today), gridExportToday: num(hass, c.grid.export_today),
@@ -1814,11 +1885,15 @@
 
       // Layout + routing only need to run when the structure or shape changes.
       const sig = [mode, d.solar.length, d.batteries.length, d.climate.length,
-                   d.consumers.length, d.grid.entity ? 1 : 0,
+                   d.consumers.map(c => c.entity).join(","),
+                   d.climate.map(c => c.entity || c.state_entity).join(","),
+                   d.grid.entity ? 1 : 0,
+                   d.solar.some(s => s.energy_today) ? 1 : 0,
+                   d.pvEnergy.entity ? 1 : 0, d.pvForecast.length,
                    target.toFixed(2)].join("|");
       if (sig !== this._sig) {
         const L = mode === "narrow" ? layoutStack(P, d) : layoutRingFitted(P, d, target);
-        this._layout = routeLinks(L, mode === "narrow" ? 10 : 13);
+        this._layout = routeLinks(consumerNetwork(L), mode === "narrow" ? 10 : 13);
         this._sig = sig;
       }
       const L = this._layout;
@@ -1833,17 +1908,21 @@
       const wireStyle = (this._config.theme && this._config.theme.wires) || "puls";
       let wires = "";
       let knock = "";
-      L.links.forEach((k, i) => {
-        const w = wireSvg(k.d, k.cls, k.on, k.rev, k.w, wireStyle);
+      L.links.forEach((link, i) => {
+        const k = { ...link, ...liveFlow(link, d) };
+        if (k.label) k.label = { ...k.label, text: fmtW(d.pvTotal) };
+        const w = `<g data-flow="${i}" data-flow-kind="${k.flow.type}"
+          data-flow-on="${k.on}" data-flow-reverse="${!!k.rev}">${
+          wireSvg(k.d, k.cls, k.on, k.rev, k.distance, wireStyle)}</g>`;
         if (k.label && k.label.knockout) {
           const box = labelBox(k.label);
-          knock += `<mask id="sc-knock${i}" maskUnits="userSpaceOnUse"
+          knock += `<mask id="sc-pv-knock${i}" maskUnits="userSpaceOnUse"
                       x="0" y="0" width="${L.vbw}" height="${L.vbh}">
                       <rect x="0" y="0" width="${L.vbw}" height="${L.vbh}" fill="#fff"/>
                       <rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}"
                             rx="${(box.h / 2).toFixed(1)}" fill="#000"/>
                     </mask>`;
-          wires += `<g mask="url(#sc-knock${i})">${w}</g>`;
+          wires += `<g mask="url(#sc-pv-knock${i})">${w}</g>`;
         } else {
           wires += w;
         }
@@ -1851,7 +1930,7 @@
       });
 
       let s = `<svg viewBox="0 0 ${L.vbw} ${L.vbh}" preserveAspectRatio="xMidYMid meet">
-        <defs><radialGradient id="houseG" cx="50%" cy="50%" r="50%">
+        <defs><radialGradient id="scPvHouseG" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stop-color="${LIGHT ? "rgba(47,126,230,0.26)" : "rgba(0,190,255,0.35)"}"/>
           <stop offset="100%" stop-color="${LIGHT ? "rgba(47,126,230,0)" : "rgba(0,190,255,0)"}"/>
         </radialGradient>${knock}</defs>`;
@@ -1904,9 +1983,9 @@
      * the surges stuttering backwards a few times a second.
      */
     _syncPhases(stage) {
-      stage.querySelectorAll("path.run, path.wire-core.live").forEach((el) => {
-        const sp = el.style.getPropertyValue("--sp") || "3s";
-        el.style.setProperty("--dl", wireDelay(el.getAttribute("d") || "", sp));
+      const pulseDelay = wireDelay(), dashDelay = wireDelay(.216);
+      stage.querySelectorAll("path.run, path.dash, path.wire-core").forEach((el) => {
+        el.style.setProperty("--dl", el.classList.contains("dash") ? dashDelay : pulseDelay);
       });
     }
 
@@ -1915,29 +1994,15 @@
       switch (n.t) {
         case "pvgroup": return this._pvGroup(n, d);
         case "house": {
-          const img = c.home.image;
-          const size = Math.round(n.r * 0.8);
-          return `<circle cx="${n.x}" cy="${n.y}" r="${Math.round(n.r * 1.3)}" fill="url(#houseG)"/>
+          const img = step1Image(c.home,LIGHT);
+          const size = Math.round(n.r * 1.08);
+          return `<circle cx="${n.x}" cy="${n.y}" r="${Math.round(n.r * 1.3)}" fill="url(#scPvHouseG)"/>
             <g class="${c.home.entity ? "clickable" : ""}"${c.home.entity ? ` data-entity="${esc(c.home.entity)}"` : ""}>
             <circle class="center" cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${LIGHT ? "rgba(255,255,255,0.82)" : "rgba(16,28,52,0.85)"}" stroke="${LIGHT ? "rgba(255,255,255,0.95)" : "rgba(120,190,255,0.5)"}" stroke-width="1.5"/>
-            ${artwork(n.x - size / 2, n.y - size / 2 - 8, size, img, c.home.icon || "mdi:home-lightning-bolt", "#7fd4ff", "rgba(0,190,255,.6)")}
-            <text x="${n.x}" y="${n.y + n.r - 12}" text-anchor="middle" font-size="${Math.round(n.r * 0.28)}" font-weight="700">${esc(fmtW(d.home))}</text></g>`;
+            ${artwork(n.x - size * .6, n.y - size / 2 - 9, size, img, c.home.icon || "mdi:home-lightning-bolt", "#7fd4ff", "rgba(0,190,255,.6)", size * 1.2)}
+            <text x="${n.x}" y="${n.y + n.r - 12}" text-anchor="middle" font-size="${Math.round(n.r * (d.home == null ? 0.19 : 0.28))}" font-weight="700">${d.home == null ? "Unvollständig" : esc(fmtW(d.home))}</text></g>`;
         }
-        case "grid": {
-          const imp = d.gridImport;
-          const sub = (c.grid.import_today || c.grid.export_today)
-            ? `↓ ${fmtKWh(d.gridImportToday)}  ↑ ${fmtKWh(d.gridExportToday)}` : null;
-          return tileSvg(n, {
-            label: c.grid.name || "Netz", value: fmtW(d.gridValue), sub: n.compact ? null : sub,
-            image: c.grid.image, icon: c.grid.icon || "mdi:transmission-tower",
-            // Light scheme keeps the whole card in one cool family, so import
-            // and export are told apart by blue vs. cyan rather than red vs.
-            // blue. Dark keeps the familiar red for import.
-            color: LIGHT ? (imp ? "#3f6fe8" : "#10b6d4") : (imp ? "#ff5d6c" : "#4aa8ff"),
-            glow: imp ? "rgba(255,93,108,.5)" : "rgba(74,168,255,.5)",
-            iconSize: n.compact ? 28 : 42, entity: c.grid.entity,
-          });
-        }
+        case "grid": return step1Grid(n,d,c.grid);
         case "storage": {
           const inner = d.batteries.map((b, i) =>
             batterySvg(n.x + 9, n.y + 42 + i * (n.batH + 10), n.w - 18, n.batH, b, false)).join("");
@@ -1961,42 +2026,95 @@
             image: t.image, icon: t.icon, color: t.color || "#7fd4ff",
             glow: (t.color || "#37c8ff") + "88", iconSize: 24, entity: t.entity, scale: P.scale });
         }
-        case "bus":
-          return wireSvg(`M ${n.x1} ${n.y} H ${n.x2}`, "cons", n.on, false, n.w,
-                         (this._config.theme && this._config.theme.wires) || "puls");
-        case "vbus":
-          return wireSvg(`M ${n.x} ${n.y1} V ${n.y2}`, "cons", n.on, false, n.w,
-                         (this._config.theme && this._config.theme.wires) || "puls");
         default: return "";
       }
     }
 
     _pvGroup(n, d) {
-      let s = `<g class="pulse"><rect class="pv-group" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="18"/>
-        <text class="pv-title" x="${n.x + 18}" y="${n.y + 27}">PV-TOTAL</text>`;
-      const startX = n.x + Math.round((n.w - (n.perRow * n.cellW + (n.perRow - 1) * n.cellGap)) / 2);
-      const top = n.y + (n.compact ? 38 : 46);
-      const centers = [];
-      d.solar.forEach((p, i) => {
-        const r = Math.floor(i / n.perRow), cIdx = i % n.perRow;
-        const x = startX + cIdx * (n.cellW + n.cellGap);
-        const y = top + r * (n.cellH + 8);
-        const cx = x + n.cellW / 2;
-        if (r === n.rows - 1 || i >= d.solar.length - n.perRow) centers.push({ x: cx, y: y + n.cellH });
-        s += `<g class="${p.entity ? "clickable" : ""}"${p.entity ? ` data-entity="${esc(p.entity)}"` : ""}>
-          <rect class="pv-cell" x="${x}" y="${y}" width="${n.cellW}" height="${n.cellH}" rx="11"/>
-          ${artwork(cx - 14, y + 7, 28, p.image, p.icon || "mdi:solar-power-variant", LIGHT ? "#10b6d4" : "#22e6a4", "rgba(34,230,164,.65)")}
-          <text class="tileLabel" x="${cx}" y="${y + 50}" text-anchor="middle">${esc(p.name || "")}</text>
-          <text class="tileVal" x="${cx}" y="${y + 68}" text-anchor="middle" font-size="15">${esc(fmtW(p.value))}</text></g>`;
-      });
-      const busY = n.y + n.h - 12;
-      if (centers.length) {
-        let d2 = centers.map((c) => `M ${c.x} ${c.y} V ${busY}`).join(" ");
-        d2 += ` M ${centers[0].x} ${busY} H ${centers[centers.length - 1].x}`;
-        s += `<path class="pv-bus" d="${d2}"/>
-          <circle cx="${n.x + n.w / 2}" cy="${busY}" r="5" fill="${inkify("#22e6a4", LIGHT)}" style="filter:drop-shadow(${LIGHT ? "0 0 7px rgba(16,182,212,.7)" : "0 0 6px #22e6a4"})"/>`;
-      }
-      return s + `</g>`;
+  const light = this._config.theme.mode === "hell";
+  const tint = light ? "#176a9e" : "#68dfff";
+  const text = light ? "#152b49" : "#edfbff";
+  const muted = light ? "#4e6d88" : "#aecbdd";
+  const start = n.x + (n.w - (n.perRow * n.cellW + (n.perRow - 1) * n.cellGap)) / 2;
+  const top = n.y + n.headH - (n.compact ? 4 : 0);
+  const shape = `pv-surface-${light ? "light" : "dark"}`;
+  let svg = `<g class="pv-pilot">
+    <defs>
+      <linearGradient id="${shape}" x1="0" y1="0" x2=".8" y2="1">
+        <stop stop-color="${light ? "#ffffff" : "#234265"}" stop-opacity="${light ? ".88" : ".58"}"/>
+        <stop offset="1" stop-color="${light ? "#d8e9f5" : "#112240"}" stop-opacity=".75"/>
+      </linearGradient>
+    </defs>
+    <rect class="pv-group" x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="18"/>
+    <text class="pv-title" x="${n.x + 18}" y="${n.y + 26}">PV-TOTAL</text>`;
+  if (d.pvEnergy.entity) {
+    const label = "Ertrag heute " + fmtPvEnergy(d.pvEnergy.value);
+    const width = n.summaryStacked ? n.w - 36 : n.w - 158;
+    const size = Math.min(14, Math.max(12, step1Fit(label, width, 14, 650)));
+    svg += `<g class="clickable" data-entity="${esc(d.pvEnergy.entity)}">
+      <text class="pv-energy-total" x="${n.summaryStacked ? n.x + 18 : n.x + n.w - 18}"
+        y="${n.y + (n.summaryStacked ? 48 : 26)}" text-anchor="${n.summaryStacked ? "start" : "end"}"
+        style="font-size:${size}px;font-weight:650;fill:var(--sc-ink-soft)">${esc(label)}</text>
+    </g>`;
+  }
+  if (d.pvForecast.length) {
+    const fx = n.x + 14, fy = n.y + (n.compact ? 34 : 38) + (n.summaryStacked ? 22 : 0);
+    const fw = n.w - 28, columnW = fw / d.pvForecast.length;
+    const values = d.pvForecast.map(f => fmtPvEnergy(f.value));
+    const valueSize = Math.min(...values.map(value => step1Fit(value, columnW - 16, 16, 650)));
+    svg += `<g class="pv-forecast">
+      <rect x="${fx}" y="${fy}" width="${fw}" height="70" rx="10"
+        style="fill:var(--sc-chip-bg);stroke:var(--sc-chip-line)"/>
+      <text class="pv-forecast-title" x="${fx + 12}" y="${fy + 17}"
+        style="font-size:11px;font-weight:650;letter-spacing:1px;fill:var(--sc-ink-soft)">PV-VORHERSAGE</text>`;
+    d.pvForecast.forEach((f, i) => {
+      const cx = fx + columnW * (i + 0.5);
+      svg += `<g class="clickable pv-forecast-metric" data-entity="${esc(f.entity)}">
+        <text class="pv-forecast-label" x="${cx}" y="${fy + 35}" text-anchor="middle"
+          style="font-size:12px;font-weight:500;fill:var(--sc-ink-soft)">${esc(f.label)}</text>
+        <text class="pv-forecast-value" x="${cx}" y="${fy + 57}" text-anchor="middle"
+          style="font-size:${valueSize}px;font-weight:650;fill:var(--sc-ink)">${esc(values[i])}</text>
+      </g>`;
+    });
+    svg += "</g>";
+  }
+  const ends = [];
+  const energyTexts = d.solar.map(p => "Heute " + fmtPvEnergy(p.energyToday));
+  const energySize = Math.min(...d.solar.filter(p => p.energy_today)
+    .map(p => step1Fit("Heute " + fmtPvEnergy(p.energyToday), n.cellW - 16, n.compact ? 13 : 14, 600)), 14);
+  for (let i = 0; i < d.solar.length; i++) {
+    const p = d.solar[i];
+    const image = light && p.image_light ? p.image_light : p.image;
+    const row = Math.floor(i / n.perRow), col = i % n.perRow;
+    const x = start + col * (n.cellW + n.cellGap), y = top + row * (n.cellH + 8);
+    const cx = x + n.cellW / 2;
+    const artH = n.compact ? 62 : 68;
+    const nameY = y + (n.compact ? 80 : 86), valueY = y + (n.compact ? 100 : 110);
+    const artW = Math.min(n.cellW - 12, artH * 1.5);
+    svg += `<g data-entity="${esc(p.entity)}" class="clickable">
+      <rect class="pv-cell" x="${x}" y="${y}" width="${n.cellW}" height="${n.cellH}" rx="13"
+        style="fill:url(#${shape});stroke:${tint};stroke-opacity:.45;opacity:1"/>
+      <path d="M ${x + 14} ${y + 1} H ${x + n.cellW - 14}" stroke="${tint}" stroke-opacity=".45" fill="none"/>
+      ${image ? `<image href="${esc(image)}" x="${cx - artW / 2}" y="${y + 3}" width="${artW}" height="${artH}" preserveAspectRatio="xMidYMid meet"/>`
+        : icon(cx - 20, y + 14, 40, p.icon || "mdi:solar-panel", tint, undefined, REDRAW)}
+      <text class="pv-pilot-name" x="${cx}" y="${nameY}" text-anchor="middle"
+        style="font-size:${n.compact ? 12 : 13}px;font-weight:600;fill:${muted}">${esc(p.name)}</text>
+      <text class="pv-pilot-value" x="${cx}" y="${valueY}" text-anchor="middle"
+        style="font-size:${n.compact ? 17 : 20}px;font-weight:700;fill:${text}">${esc(fmtW(p.value))}</text>
+      ${p.energy_today ? `<g class="clickable pv-array-yield" data-entity="${esc(p.energy_today)}">
+        <text class="pv-pilot-energy" x="${cx}" y="${valueY + 22}" text-anchor="middle"
+          style="font-size:${energySize}px;font-weight:600;fill:${muted}">${esc(energyTexts[i])}</text>
+      </g>` : ""}
+    </g>`;
+    if (row === n.rows - 1) ends.push({ x: cx, y: y + n.cellH });
+  }
+  const busY = n.y + n.h - 12, center = n.x + n.w / 2;
+  if (ends.length) {
+    const path = ends.map(p => `M ${p.x} ${p.y} V ${busY}`).join(" ")
+      + ` M ${ends[0].x} ${busY} H ${ends[ends.length - 1].x} M ${center} ${busY} V ${n.y + n.h}`;
+    svg += `<path class="pv-bus" d="${path}"/><circle cx="${center}" cy="${busY}" r="3.5" fill="var(--sc-prod)"/>`;
+  }
+  return svg + "</g>";
     }
 
     _climateGroup(n, d) {
@@ -2135,10 +2253,18 @@
     ],
     solarItem: [
       { name: "entity", label: "Leistungssensor", selector: SEL.power },
+      { name: "energy_today", label: "Ertrag heute (Tageszähler)", selector: { entity: { domain: "sensor" } } },
+      { name: "energy_today_unit", label: "Einheit, falls der Sensor noch keine meldet", selector: { select: { options: ["kWh", "Wh", "MWh"], mode: "dropdown" } } },
       { type: "grid", column_min_width: "220px", schema: [
         { name: "name", label: "Name", selector: SEL.text },
         { name: "icon", label: "Symbol", selector: SEL.icon },
       ] },
+    ],
+    pv: [
+      { name: "energy_today", label: "Gesamtertrag heute (gemessen)", selector: { entity: { domain: "sensor", device_class: "energy" } } },
+      { name: "forecast_today", label: "PV-Vorhersage heute", selector: { entity: { domain: "sensor", device_class: "energy" } } },
+      { name: "forecast_remaining", label: "PV-Vorhersage Resttag", selector: { entity: { domain: "sensor", device_class: "energy" } } },
+      { name: "forecast_tomorrow", label: "PV-Vorhersage morgen", selector: { entity: { domain: "sensor", device_class: "energy" } } },
     ],
     batteryItem: [
       { type: "grid", column_min_width: "220px", schema: [
@@ -2215,6 +2341,7 @@
   // Every section supports an uploaded picture instead of an mdi icon.
   const PAGES = [
     { id: "solar",     title: "PV-Quellen",  icon: "mdi:solar-power",           list: true, item: "solarItem",    label: (x, h) => x.name || fname(h, x.entity) },
+    { id: "pv",        title: "PV-Ertrag & Vorhersage", icon: "mdi:weather-partly-cloudy", schema: "pv" },
     { id: "batteries", title: "Speicher",    icon: "mdi:battery-high",          list: true, item: "batteryItem",  label: (x, h) => x.name || fname(h, x.soc || x.power) },
     { id: "grid",      title: "Netz",        icon: "mdi:transmission-tower",    schema: "grid" },
     { id: "home",      title: "Haus",        icon: "mdi:home-lightning-bolt",   schema: "home" },
@@ -2419,7 +2546,7 @@
     .pic mwc-button, .pic ha-button { --mdc-typography-button-font-size:13px; }
     .pic input[type=file] { display:none; }`;
 
-  class ModernEnergyDashboardFlowCardEditor extends HTMLElement {
+  class ModernEnergyPvCardEditor extends HTMLElement {
     constructor() {
       super();
       this.attachShadow({ mode: "open" });
@@ -2478,7 +2605,7 @@
         if (!this._page) this._renderOverview(root);
         else this._renderPage(root);
       } catch (err) {
-        console.error("[modern-energy-dashboard-flow-card] editor render failed", err);
+        console.error("[modern-energy-pv-card] editor render failed", err);
         root.innerHTML = `<div class="empty">Editor konnte nicht geladen werden: ${esc(err.message || err)}</div>`;
       }
       this._propagate();
@@ -2559,7 +2686,7 @@
             const old = getUrl();
             setUrl(undefined);
             draw();
-            await deleteImage(this._hass, old);
+            // Other cards may still reference this HA image.
           });
           acts.appendChild(del);
         }
@@ -2575,7 +2702,7 @@
           const url = await uploadImage(this._hass, f);
           setUrl(url);
           draw();
-          if (previous && previous !== url) await deleteImage(this._hass, previous);
+          // Replacing a reference does not delete a potentially shared HA image.
         } catch (err) {
           draw(err.message || String(err), true);
         }
@@ -2685,7 +2812,7 @@
             }
             n[page.id] = { ...prev, ...v };
           })));
-        if (page.id !== "header" && page.id !== "theme") {
+        if (page.id !== "header" && page.id !== "theme" && page.id !== "pv") {
           root.appendChild(this._imageField(
             () => (this._config[page.id] || {}).image,
             (url) => this._patch((n) => {
@@ -2693,6 +2820,16 @@
               if (url) n[page.id].image = url; else delete n[page.id].image;
             }),
             (this._config[page.id] || {}).icon || page.icon));
+          if (page.id === "grid" || page.id === "home") {
+            const hint = document.createElement("div");
+            hint.className = "hint";
+            hint.textContent = "Optionales Bild im hellen Design";
+            root.appendChild(hint);
+            root.appendChild(this._imageField(
+              () => this._config[page.id].image_light,
+              url => this._patch(n => { if (url) n[page.id].image_light = url; else delete n[page.id].image_light; }),
+              (this._config[page.id] || {}).icon || page.icon));
+          }
         }
         return;
       }
@@ -2718,6 +2855,16 @@
           if (url) n[page.id][i].image = url; else delete n[page.id][i].image;
         }),
         item.icon || page.icon));
+      if (page.id === "solar" || page.id === "batteries") {
+        const hint = document.createElement("div");
+        hint.className = "hint";
+        hint.textContent = "Optionales Bild im hellen Design";
+        root.appendChild(hint);
+        root.appendChild(this._imageField(
+          () => this._config[page.id][i].image_light,
+          url => this._patch(n => { if (url) n[page.id][i].image_light = url; else delete n[page.id][i].image_light; }),
+          item.icon || page.icon));
+      }
     }
 
     _renderList(root, page) {
@@ -2813,100 +2960,15 @@
     }
   }
 
-  // ------------------------------------------------------- battery status card
-  class ModernEnergyDashboardBatteryCard extends HTMLElement {
-    setConfig(config) {
-      if (!config.entity) throw new Error("entity is required");
-      this._config = config;
-      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-    }
-    set hass(hass) { this._hass = hass; this._render(); }
-    getCardSize() { return 4; }
 
-    _render() {
-      if (!this._hass || !this._config) return;
-      const c = this._config;
-      const soc = num(this._hass, c.entity);
-      const power = num(this._hass, c.power);
-      const level = soc == null ? 0 : clamp(soc, 0, 100);
-      const accent = c.accent || "#33d6ff";
-      const accent2 = c.accent2 || "#32e2ad";
-      const state = power == null ? "Keine Daten" : power < -5 ? "Lädt" : power > 5 ? "Entlädt" : "Bereit";
-      const details = (c.details || []).map((d) => {
-        const entity = this._hass.states[d.entity];
-        const value = entity ? entity.state : "–";
-        const unit = entity?.attributes?.unit_of_measurement || "";
-        return `<div class="metric">
-          <div class="metric-head"><ha-icon icon="${esc(d.icon || "mdi:circle-small")}"></ha-icon>
-            <span>${esc(d.name || entity?.attributes?.friendly_name || "")}</span></div>
-          <div class="metric-value">${esc(value)}${unit ? ` <small>${esc(unit)}</small>` : ""}</div>
-        </div>`;
-      }).join("");
-
-      this.shadowRoot.innerHTML = `<style>
-        :host { display:block; min-width:0; }
-        ha-card {
-          box-sizing:border-box; overflow:hidden; border-radius:20px; padding:18px; color:#fff;
-          background:
-            radial-gradient(500px 180px at 0% 0%, ${accent}22, transparent 65%),
-            linear-gradient(145deg, rgba(11,25,49,.98), rgba(5,11,24,.98));
-          border:1px solid ${accent}55;
-          box-shadow:0 8px 28px rgba(0,0,0,.35), 0 0 28px ${accent}18;
-        }
-        .top { display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; }
-        .icon { width:52px; height:52px; display:grid; place-items:center; border-radius:16px;
-                background:${accent}20; border:1px solid ${accent}55; }
-        .icon ha-icon { --mdc-icon-size:34px; color:#fff; filter:drop-shadow(0 0 7px ${accent}); }
-        .name { color:#fff; font-size:18px; line-height:1.25; font-weight:700; }
-        .state { margin-top:3px; color:rgba(255,255,255,.82); font-size:14px; line-height:1.3; }
-        .soc { color:#fff; font-size:32px; line-height:1; font-weight:750; white-space:nowrap; }
-        .soc small { font-size:16px; font-weight:600; }
-        .bar { height:11px; margin:16px 0; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.09); }
-        .bar > div { width:${level}%; height:100%; border-radius:inherit;
-          background:linear-gradient(90deg, ${accent}, ${accent2}); box-shadow:0 0 14px ${accent}; transition:width .5s ease; }
-        .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }
-        .metric { min-width:0; padding:10px; border-radius:12px;
-          background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.10); }
-        .metric-head { display:flex; gap:6px; align-items:center; min-width:0;
-          color:#fff; font-size:14px; line-height:1.25; font-weight:600; }
-        .metric-head ha-icon { flex:0 0 auto; --mdc-icon-size:17px; color:#fff; }
-        .metric-head span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .metric-value { margin-top:7px; color:#fff; font-size:17px; line-height:1.25;
-          font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .metric-value small { color:#fff; font-size:13px; }
-        @media (max-width:650px) { .name { font-size:17px; } .soc { font-size:28px; } }
-      </style>
-      <ha-card>
-        <div class="top">
-          <div class="icon"><ha-icon icon="${esc(c.icon || "mdi:battery-high")}"></ha-icon></div>
-          <div><div class="name">${esc(c.name || "Batterie")}</div><div class="state">${esc(state)} · ${esc(fmtW(power))}</div></div>
-          <div class="soc">${soc == null ? "–" : Math.round(soc)}<small>%</small></div>
-        </div>
-        <div class="bar"><div></div></div>
-        <div class="metrics">${details}</div>
-      </ha-card>`;
-    }
-  }
-
-  // ------------------------------------------------------------- registration
-  if (!customElements.get("modern-energy-dashboard-flow-card")) customElements.define("modern-energy-dashboard-flow-card", ModernEnergyDashboardFlowCard);
-  if (!customElements.get("modern-energy-dashboard-flow-card-editor")) customElements.define("modern-energy-dashboard-flow-card-editor", ModernEnergyDashboardFlowCardEditor);
-  if (!customElements.get("modern-energy-dashboard-battery-card")) customElements.define("modern-energy-dashboard-battery-card", ModernEnergyDashboardBatteryCard);
-
+  if (!customElements.get("modern-energy-pv-card")) customElements.define("modern-energy-pv-card", ModernEnergyPvCard);
+  if (!customElements.get("modern-energy-pv-card-editor")) customElements.define("modern-energy-pv-card-editor", ModernEnergyPvCardEditor);
   window.customCards = window.customCards || [];
-  window.customCards.push({
-    type: "modern-energy-dashboard-flow-card",
-    name: "Modern Energy Dashboard – Energy Flow",
-    description: "Responsiver Energiefluss mit PV, Speicher, Netz, Klima und frei konfigurierbaren Verbrauchern.",
-    preview: false,
-    documentationURL: "https://github.com/bh4it/modern-energy-dashboard",
+  if (!window.customCards.some(c => c.type === "modern-energy-pv-card")) window.customCards.push({
+    type: "modern-energy-pv-card", name: "Modern Energy Card – PV Design",
+    description: "Energiefluss im PV-Design mit PV-Prognose (Heute / Rest / Morgen).", preview: false, documentationURL: "https://github.com/bh4it/modern-energy-card"
   });
-  window.customCards.push({
-    type: "modern-energy-dashboard-battery-card",
-    name: "Modern Energy Dashboard – Battery Status",
-    description: "Dark, responsive battery card with SOC, power and metrics.",
-  });
-  console.info(`%c MODERN-ENERGY-DASHBOARD %c v${CARD_VERSION} `,
+  console.info(`%c MODERN-ENERGY-CARD PV %c v${CARD_VERSION} `,
     "background:#0a1122;color:#7fd4ff;padding:2px 6px;border-radius:4px 0 0 4px",
     "background:#37c8ff;color:#05070f;padding:2px 6px;border-radius:0 4px 4px 0");
 })();
